@@ -1,12 +1,12 @@
 #ifndef TicksPerSecond_h
 #define TicksPerSecond_h
 
-#include <avr/interrupt.h>
-#include <wiring.h>
+//#include <interrupt.h>
+#include <wiring_private.h>
 
-#define disableInterrupts() uint8_t oldSREG = SREG; cli()
+#define disableInterrupts() /*uint8_t oldSREG = SREG; */noInterrupts()
 
-#define restoreInterrupts() SREG = oldSREG
+#define restoreInterrupts() /*SREG = oldSREG;*/interrupts()
 
 /**
  * Used to compute the looping speed of the main loop

@@ -2,8 +2,9 @@
 #define Button_h
 
 //#include <math.h>
+#include "wiring_private.h"
 
-#include <wiring.h>
+//#include <wiring.h>
 
 /**
  * A debounced button class.
