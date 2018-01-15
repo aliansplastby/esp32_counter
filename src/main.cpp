@@ -6,7 +6,6 @@
 #include "soc/rtc.h"
 #include "rom/uart.h"
 
-
 #include <WiFi.h>
 
 #include <HTTPClient.h>
