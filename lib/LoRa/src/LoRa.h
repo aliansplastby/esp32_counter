@@ -1,27 +1,24 @@
+// Copyright (c) Sandeep Mistry. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 #ifndef LORA_H
 #define LORA_H
 
 #include <Arduino.h>
 #include <SPI.h>
 
-#define LORA_DEFAULT_SS_PIN     18
-#define LORA_DEFAULT_RESET_PIN  14
-#define LORA_DEFAULT_DIO0_PIN   26
+#define LORA_DEFAULT_SS_PIN    10
+#define LORA_DEFAULT_RESET_PIN 9
+#define LORA_DEFAULT_DIO0_PIN  2
 
-#define PA_OUTPUT_PA_BOOST_PIN  1
-#define PA_OUTPUT_RFO_PIN       0
-
-#if defined (__STM32F1__)
-inline unsigned char  digitalPinToInterrupt(unsigned char Interrupt_pin) { return Interrupt_pin; } //This isn't included in the stm32duino libs (yet)
-#define portOutputRegister(port) (volatile byte *)( &(port->regs->ODR) ) //These are defined in STM32F1/variants/generic_stm32f103c/variant.h but return a non byte* value
-#define portInputRegister(port) (volatile byte *)( &(port->regs->IDR) ) //These are defined in STM32F1/variants/generic_stm32f103c/variant.h but return a non byte* value
-#endif
+#define PA_OUTPUT_RFO_PIN      0
+#define PA_OUTPUT_PA_BOOST_PIN 1
 
 class LoRaClass : public Stream {
 public:
   LoRaClass();
 
-  int begin(long frequency,bool PABOOST);
+  int begin(long frequency);
   void end();
 
   int beginPacket(int implicitHeader = false);

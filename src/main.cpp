@@ -450,7 +450,7 @@ void setup(void) {
 
   btStop();
 
-  if (!LoRa.begin(BAND,true)) {
+  if (!LoRa.begin(BAND)) {
     Serial.println("Starting LoRa failed!");
     while (1);
   }
@@ -518,7 +518,7 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
   {
     unsigned long m=millis();
 
-    if (!LoRa.begin(BAND,true)) {
+    if (!LoRa.begin(BAND)) {
     Serial.println("Starting LoRa failed!");
     while (1);
     }
