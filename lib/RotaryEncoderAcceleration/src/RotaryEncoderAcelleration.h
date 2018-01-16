@@ -9,7 +9,7 @@
  * If the speed of ticking is below this value no acceleration
  * is considered, i.e. ticking is by 1.
  */
-#define MIN_TPS 5
+#define MIN_TPS 10
 
 /**
  * Maximum rotary encoder tick per second when accelerating.
@@ -24,7 +24,7 @@
  * a 360 degrees rotation then 5 rotations at full speed will be needed
  * to go from minValue to maxValue.
  */
-#define TICKS_AT_MAX_SPEED_FOR_FULL_SPAN 100
+#define TICKS_AT_MAX_SPEED_FOR_FULL_SPAN 240
 
 /**
  * Quadrature (Rotary encoder) sensitive to rotation speed.
@@ -61,12 +61,12 @@ public:
 	 * This method should be placed in the main loop of the program or
 	 * might be invoked from an interrupt.
 	 */
-	void update();
+	void IRAM_ATTR update();
 
 	/**
 	 * Has the rotary encoder been ticked at the last update
 	 */
-	inline boolean isTicked() {
+	inline IRAM_ATTR boolean isTicked() {
 		return pinA.isPressed();
 	}
 
@@ -74,7 +74,7 @@ public:
 	 * Has the rotary encoder been rotated in incrementing direction at the last update.
 	 * If the method returns TRUE the direction is incrementing.
 	 */
-	inline boolean isIncrementing() {
+	inline IRAM_ATTR boolean isIncrementing() {
 		return pinB.isUp();
 	}
 

@@ -3,13 +3,13 @@
 void Button::initialize(uint8_t pin, int debounceMillis) {
 	buttonPin = pin;
 	debounce = debounceMillis;
-	pinMode(pin, INPUT);
+	pinMode(pin, INPUT_PULLUP);
 	digitalWrite(pin, HIGH);
 	lastToggleTime = millis();
 	lastState = buttonState = digitalRead(buttonPin);
 }
 
-void Button::update() {
+IRAM_ATTR void Button::update() {
 	boolean curReading = digitalRead(buttonPin);
 	long now = millis();
 	lastState = buttonState;

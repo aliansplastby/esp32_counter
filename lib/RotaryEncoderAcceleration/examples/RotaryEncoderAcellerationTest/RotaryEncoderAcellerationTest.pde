@@ -3,10 +3,10 @@
 #include <TicksPerSecond.h>
 #include <RotaryEncoderAcelleration.h>
 
-static const int buttonPin = 4;	// the number of the pushbutton pin
+static const int buttonPin = 21;	// the number of the pushbutton pin
 static const int speakerPin = 8;
-static const int rotorPinA = 2;	// One quadrature pin
-static const int rotorPinB = 3;	// the other quadrature pin
+static const int rotorPinA = 12;	// One quadrature pin
+static const int rotorPinB = 13;	// the other quadrature pin
 
 static Button btn;
 static boolean speakerOn = true;
@@ -51,4 +51,3 @@ void loop() {
 	}
 	lastRotor = pos;
 }
-

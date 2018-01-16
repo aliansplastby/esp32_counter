@@ -10,7 +10,7 @@ void TicksPerSecond::initialize(int holdLastTimeoutMillis) {
 	deltaTime = holdLastTimeoutMillis / TPS_TIMES_PER_PERIOD;
 }
 
-void TicksPerSecond::update(boolean tick) {
+void IRAM_ATTR TicksPerSecond::update(boolean tick) {
 	long now = millis();
 	if (now - lastTime >= deltaTime) {
 		counters[curCounter] = 0;

@@ -35,7 +35,7 @@ class Button {
 	/**
 	 * Debounce time in milliseconds, default 10
 	 */
-	int debounce;
+	 int debounce;
 
 public:
 	/**
@@ -53,13 +53,13 @@ public:
 	 * This method should be placed in the main loop of the program or
 	 * might be invoked from an interrupt.
 	 */
-	void update(void);
+	void IRAM_ATTR update(void);
 
 	/**
 	 * Has the button stated changed from isUp to isDown at the last update.
 	 * This is to be used like an OnKeyDown.
 	 */
-	inline boolean isPressed(void) {
+	inline IRAM_ATTR boolean isPressed(void) {
 		return ((!buttonState) && lastState);
 	}
 
@@ -67,21 +67,21 @@ public:
 	 * Has the button stated changed from isDown to isUp at the last update.
 	 * This is to be used like an OnKeyUp.
 	 */
-	inline boolean isReleased(void) {
+	inline IRAM_ATTR boolean isReleased(void) {
 		return (buttonState && (!lastState));
 	}
 
 	/**
 	 * Is the button down (pushed).
 	 */
-	inline boolean isDown(void) {
+	inline IRAM_ATTR boolean isDown(void) {
 		return (!buttonState);
 	}
 
 	/**
 	 * Is the button up.
 	 */
-	inline boolean isUp(void) {
+	inline IRAM_ATTR boolean isUp(void) {
 		return (buttonState);
 	}
 };

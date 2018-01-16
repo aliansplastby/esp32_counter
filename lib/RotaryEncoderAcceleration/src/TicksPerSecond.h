@@ -71,13 +71,13 @@ public:
 	 * 		Indicates if the invocation of the method should cause a ticking or
 	 * 		is just to update the ticks per second value.
 	 */
-	void update(boolean tick = true);
+	void IRAM_ATTR update(boolean tick = true);
 
 	/**
 	 * Returns the ticks per second value.
 	 * Disables interrupts before reading the actual value.
 	 */
-	inline float getTPS() {
+	inline IRAM_ATTR float getTPS() {
 		disableInterrupts();
 		float result = getTPS_unsafe();
 		restoreInterrupts();
@@ -88,7 +88,7 @@ public:
 	 * Returns the ticks per second value.
 	 * This is "thread unsafe" method.
 	 */
-	inline float getTPS_unsafe() {
+	inline IRAM_ATTR float getTPS_unsafe() {
 		return tps;
 	}
 
@@ -96,7 +96,7 @@ public:
 	 * Returns the ticks per second value as integer.
 	 * Disables interrupts before reading the actual value.
 	 */
-	inline int getIntTPS() {
+	inline IRAM_ATTR int getIntTPS() {
 		disableInterrupts();
 		int result = (int) tps;
 		restoreInterrupts();
@@ -107,7 +107,7 @@ public:
 	 * Returns the ticks per second value as integer.
 	 * This is "thread unsafe" method.
 	 */
-	inline int getIntTPS_unsafe() {
+	inline IRAM_ATTR int getIntTPS_unsafe() {
 		return (int) tps;
 	}
 

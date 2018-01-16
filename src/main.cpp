@@ -20,6 +20,9 @@
 Preferences preferences;
 #define MOLD_BUTTON_PIN 2
 #define WIFI_CLAMP_ON
+static const int buttonPin = 22;	// the number of the pushbutton pin
+static const int rotorPinA = 25;	// One quadrature pin
+static const int rotorPinB = 23;	// the other quadrature pin
 
 //#define WIFI_GATEWAY
 //#define LORA_GATEWAY
@@ -56,9 +59,10 @@ unsigned int mouldId=64;
 //#define SOFTWARE_SPI
 //#define USE_SPI_LIB
 
-//#include <FS.h>
-//#include <SD.h>
-#include <mySD.h>
+#include <FS.h>
+#include <SD.h>
+//#include <mySD.h>
+const int chipSelect = 22;
 
 // WIFI_LoRa_32 ports
 
@@ -74,16 +78,14 @@ unsigned int mouldId=64;
 #define DI0     26
 #define BAND    433E6
 
-/*
-  U8glib Example Overview:
-    Frame Buffer Examples: clearBuffer/sendBuffer. Fast, but may not work with all Arduino boards because of RAM consumption
-    Page Buffer Examples: firstPage/nextPage. Less RAM usage, should work with all Arduino boards.
-    U8x8 Text Only Example: No RAM usage, direct communication with display controller. No graphics, 8x8 Text only.
-*/
+static Button btn;
+static RotaryEncoderAcelleration rotor;
+long lastRotor = 0;
 
 //U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 4, /* reset=*/ 16);
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ 16, /* clock=*/ 15, /* data=*/ 4);   // ESP32 Thing, HW I2C with pin remapping
 File root;
+
 
 unsigned long frame;
 unsigned long cycletime;
@@ -98,6 +100,7 @@ unsigned int machineStatus;
 #define MOLD_CLOSED 1
 #define PRODUCTION_STOPPED 2
 
+char msg[128] = "______";
 char productArticle[100] = "ДВ-1,0/131";
 char moldInvId[4] = "963";
 char machineNumber[10] = "1.12";
@@ -124,26 +127,31 @@ unsigned long sendNTPpacket(IPAddress& address);
 /* END TIME SERVER*/
 
 
-// Please UNCOMMENT one of the contructor lines below
-// U8g2 Contructor List (Frame Buffer)
-// The complete list is available here: https://github.com/olikraus/u8g2/wiki/u8g2setupcpp
-// Please update the pin numbers according to your setup. Use U8X8_PIN_NONE if the reset pin is not connected
-//U8G2_SSD1306_128X64_NONAME_F_4W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 13, /* data=*/ 11, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-//U8G2_SSD1306_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 12, /* dc=*/ 4, /* reset=*/ 6);  // Arduboy (Production, Kickstarter Edition)
-//U8G2_SSD1306_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-//U8G2_SSD1306_128X64_NONAME_F_3W_SW_SPI u8g2(U8G2_R0, /* clock=*/ 13, /* data=*/ 11, /* cs=*/ 10, /* reset=*/ 8);
-//U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
-//U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ 13, /* data=*/ 11, /* reset=*/ 8);
-//U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ SCL, /* data=*/ SDA, /* reset=*/ U8X8_PIN_NONE);   // All Boards without Reset of the Display
-//U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ 16, /* data=*/ 17, /* reset=*/ U8X8_PIN_NONE);   // ESP32 Thing, pure SW emulated I2C
-//U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 16, /* data=*/ 17);   // ESP32 Thing, HW I2C with pin remapping
-//U8G2_SSD1306_128X64_NONAME_F_6800 u8g2(U8G2_R0, 13, 11, 2, 3, 4, 5, 6, A4, /*enable=*/ 7, /*cs=*/ 10, /*dc=*/ 9, /*reset=*/ 8);
-//U8G2_SSD1306_128X64_NONAME_F_8080 u8g2(U8G2_R0, 13, 11, 2, 3, 4, 5, 6, A4, /*enable=*/ 7, /*cs=*/ 10, /*dc=*/ 9, /*reset=*/ 8);
-//U8G2_SSD1306_128X64_VCOMH0_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8); // same as the NONAME variant, but maximizes setContrast() range
-//U8G2_SH1106_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);
-//U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
-//U8G2_SH1106_128X64_VCOMH0_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ 10, /* dc=*/ 9, /* reset=*/ 8);    // same as the NONAME variant, but maximizes setContrast() range
+void loopTask(void *pvParameters)
+{
+	setup();
+	for (;;) {
+		loop();
+		//vTaskDelay(10);
+	}
+}
+extern "C" void app_main()
+{
+	initArduino();
+	xTaskCreatePinnedToCore(loopTask, "loopTask", 8192, NULL, 1, NULL, 0);
+}
 
+
+IRAM_ATTR void UpdateRotorButton()
+{
+	btn.update();
+}
+//Rotary Encoder
+IRAM_ATTR void UpdateRotor() {
+	noInterrupts();
+	rotor.update();
+	interrupts();
+}
 
 
 void updateStrings(void)
@@ -295,19 +303,53 @@ void WiFiConnect()
     Serial.println("WiFi set config!");
     WiFi.config(ip, gateway, subnet);
   }
-  int c = 30;
+
+  int c = 10;
   Serial.println("Connecting to WiFi");
   WiFi.begin(ssid, password);
+	u8g2.clearBuffer();
+
+	strcpy(msg, "Connecting to WiFi ");
   while (WiFi.status() != WL_CONNECTED && c > 0) {
+		strcpy(&msg[strlen(msg)], ".");
     Serial.print(".");
-    delay(300);
+    delay(250);
+//		u8g2.clearBuffer();
+		u8g2.setCursor(1, 10);
+		u8g2.setDrawColor(1);
+		u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+		u8g2.print(msg);
+		u8g2.sendBuffer();
     c--;
   }
+	WiFiOff();
+	WiFi.begin(ssid, password);
+	c=10;
+	while (WiFi.status() != WL_CONNECTED && c > 0) {
+		strcpy(&msg[strlen(msg)], ".");
+    Serial.print(".");
+    delay(250);
+//		u8g2.clearBuffer();
+		u8g2.setCursor(1, 10);
+		u8g2.setDrawColor(1);
+		u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+		u8g2.print(msg);
+		u8g2.sendBuffer();
+    c--;
+  }
+
   if (c > 0)
   {
     Serial.println(".");
     Serial.print("Connected to the WiFi network:");
     Serial.println(ssid);
+
+		strcpy(msg, "Connected to:");
+		strcpy(&msg[strlen(msg)], ssid);
+		u8g2.setCursor(1, 10+8);
+		u8g2.print(msg);
+		u8g2.sendBuffer();
+
     Serial.print("Tooked time:");
     Serial.println((millis()-m)*3);
 
@@ -325,6 +367,14 @@ void WiFiConnect()
 
 //    esp_wifi_set_ps(WIFI_PS_MODEM);
   }
+	else
+	{
+		strcpy(msg, "Failed to connect to:");
+		strcpy(&msg[strlen(msg)], ssid);
+		u8g2.setCursor(1, 10+8);
+		u8g2.print(msg);
+		u8g2.sendBuffer();
+	}
 }
 
 extern "C" int rom_phy_get_vdd33();
@@ -335,24 +385,25 @@ void setup(void) {
 
   delay(50);
   Serial.begin(115200);
-  delay(50);
+  delay(100);
+
 /*SD CARD*****************************************/
-/*
+
   Serial.println("Initializing SD card...");
   // initialize SD library with SPI pins
   //uint8_t csPin = SD_CHIP_SELECT_PIN, int8_t mosi = -1, int8_t miso = -1, int8_t sck = -1);
-
-  if (!SD.begin(13, 21, 25, 12)) {
+/*  if (!SD.begin(13, 21, 17, 12)) {
     Serial.println("Failed!");
     return;
   }
   else{Serial.println("OK!");}
 */
   /*SD CARD****************************************/
-//  uint8_t Sd2Card::init(uint8_t sckRateID, uint8_t chipSelectPin, int8_t mosiPin, int8_t misoPin, int8_t clockPin) {
+//  uint8_t Sd2Card::init(uint8_t sckRateID,
+// uint8_t chipSelectPin, int8_t mosiPin, int8_t misoPin, int8_t clockPin) {
 //    rtc_clk_cpu_freq_set(RTC_CPU_FREQ_80M);
 /*
-    SPI.begin(13,21,25,12);
+    SPI.begin(13,21,17,12);
     while (!SD.begin(13, SPI, 24000000, "/sd"))
     {
       Serial.println("initialization failed. Things to check:");
@@ -360,17 +411,26 @@ void setup(void) {
     };
 */
 
-/*
-  Sd2Card card;
-  SdVolume volume;
+
+  //Sd2Card card;
+  //SdVolume volume;
   //SdFile root;
-  while (!card.init(SPI_HALF_SPEED, 13, 21, 25, 12))
+
+//	 void begin(int8_t sck=-1, int8_t miso=-1, int8_t mosi=-1, int8_t ss=-1);
+	SPI.begin(5, 19, 27, 22);
+
+//	uint8_t init(uint8_t sckRateID,
+//  uint8_t chipSelectPin, int8_t mosiPin = -1, int8_t misoPin = -1, int8_t clockPin = -1);
+//  while (!card.init(SPI_HALF_SPEED, 18, 27, 19, 5))
+if (!SD.begin(22))
+//while (!card.init(SPI_QUARTER_SPEED, 18))
   {
     Serial.println("initialization failed. Things to check:");
     Serial.println("* is a card is inserted?");
     Serial.println("* Is your wiring correct?");
     Serial.println("* did you change the chipSelect pin to match your shield or module?");
   }
+/*
     // print the type of card
   Serial.print("\nCard type: ");
   switch(card.type()) {
@@ -391,7 +451,8 @@ void setup(void) {
     Serial.println("Could not find FAT16/FAT32 partition.\nMake sure you've formatted the card");
     return;
   }
-
+	*/
+/*
 
   // print the type and size of the first FAT-type volume
   uint32_t volumesize;
@@ -422,6 +483,12 @@ void setup(void) {
 //    Serial.println("Starting LoRa failed!");
 //    while (1);
 //  }
+btn.initialize(buttonPin);
+rotor.initialize(rotorPinA, rotorPinB);
+rotor.setMinMax(100, 999);
+rotor.setPosition(500);
+attachInterrupt(digitalPinToInterrupt(rotorPinA), UpdateRotor, CHANGE);
+attachInterrupt(digitalPinToInterrupt(rotorPinB), UpdateRotor, CHANGE);
 
   SPI.begin(5, 19, 27, 18);
   LoRa.setPins(SS, RST, DI0);
@@ -464,6 +531,7 @@ void setup(void) {
   #endif
 
   switchLanguage();
+
 }
 
 void loraSendPacket(char* msg)
@@ -591,6 +659,23 @@ int isDisplayOn=1;
 int prevCycleTime;
 
 void loop(void) {
+  btn.update();
+	//rotor.update();
+  long pos = rotor.getPosition();
+
+  if (btn.isPressed()) {
+		Serial.println("Rotary Button Pressed!");
+  }
+
+  if (lastRotor != pos) {
+    float tps = rotor.tps.getTPS();
+    Serial.print("Rotor: ");
+    Serial.print(pos);
+    Serial.print(" ");
+    Serial.println(tps);
+  }
+  lastRotor = pos;
+
     displayStatus = 1;
     #ifdef LORA_GATEWAY
     {
@@ -818,7 +903,8 @@ void loop(void) {
 
   if (isDisplayOn == 0)
   {
-    delay(90);
+		//DISPLAY IS OFF
+    //delay(90);
     return;
   }
 
@@ -987,7 +1073,7 @@ void loop(void) {
   u8g2.sendBuffer();
 
   //  esp_deep_sleep(1000000/10);
-  delay(30);
+  //delay(30);
 }
 
 
@@ -1005,8 +1091,16 @@ void getTime()
 
   // wait to see if a reply is available
   int c = 20;
+	strcpy(msg, "Getting time ");
   while ((c--) > 0)
   {
+			strcpy(&msg[strlen(msg)], ".");
+			u8g2.setCursor(1, 10+8+8);
+			u8g2.setDrawColor(1);
+			u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+			u8g2.print(msg);
+			u8g2.sendBuffer();
+
     delay(100);
     int cb = udp.parsePacket();
     if (!cb) {
@@ -1190,13 +1284,19 @@ void initEspNow() {
   });
 }
 lan
-void wifiConnect() {
+void wifiConnect()
+{
   WiFi.mode(WIFI_STA);
   Serial.print("Connecting to "); Serial.print(ssid);
   WiFi.begin(ssid, password);
+//	u8g2.setPowerSave(0);
+
   while (WiFi.status() != WL_CONNECTED) {
      delay(250);
+//		 u8g2.setFontDirection(0);
+//		 u8g2.clearBuffer();
      Serial.print(".");
+
   }
   Serial.print("\nWiFi connected, IP address: "); Serial.println(WiFi.localIP());
 }

@@ -10,13 +10,16 @@ void RotaryEncoderAcelleration::initialize(uint8_t pinNumberA, uint8_t pinNumber
 	maxValue = 1000;
 }
 
-void RotaryEncoderAcelleration::update() {
+void IRAM_ATTR RotaryEncoderAcelleration::update() {
+
 	pinA.update(); // toggle
 	pinB.update(); // direction
 
 	if (isTicked()) {
+
 		tps.update(true);
-		int speed = constrain(tps.getIntTPS_unsafe(), MIN_TPS, MAX_TPS) - MIN_TPS;
+		int tps1=20;//tps.getIntTPS();
+		int speed = constrain(tps1, MIN_TPS, MAX_TPS) - MIN_TPS;
 		long delta = max(1, (maxValue - minValue) / TICKS_AT_MAX_SPEED_FOR_FULL_SPAN);
 
 		// Linear acceleration (very sensitive - not comfortable)
@@ -31,7 +34,9 @@ void RotaryEncoderAcelleration::update() {
 
 		position = constrain(position + (isIncrementing() ? step : -step),
 				minValue, maxValue);
+
 	} else {
 		tps.update(false);
 	}
+
 }
