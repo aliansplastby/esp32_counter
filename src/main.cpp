@@ -18,11 +18,29 @@
 
 #include <Preferences.h>
 Preferences preferences;
-#define MOLD_BUTTON_PIN 2
+static const int buttonPin = 21;	// the number of the pushbutton pin
+
+static const int rotorPinA = 13;	// One quadrature pin
+static const int rotorPinB = 12;	// the other quadrature pin
+
 #define WIFI_CLAMP_ON
-static const int buttonPin = 22;	// the number of the pushbutton pin
-static const int rotorPinA = 25;	// One quadrature pin
-static const int rotorPinB = 23;	// the other quadrature pin
+
+#define MOLD_BUTTON_PIN 17
+#define BLUE_LED 2
+#define LORA_CLK 5   //
+#define LORA_MOSI 27 //
+#define LORA_MISO 19 //REUSED IN SD/MISO
+#define LORA_CS      18 //REUSED IN SD/CLK
+
+#define LORA_RST     14
+#define LORA_DI0     26
+#define LORA_BAND    433E6
+
+#define SD_CLK 18  //YELLOW
+#define SD_MISO 19 //PURPLE(27' on board)
+#define SD_MOSI 23 //BLUE
+#define SD_CS 22 //GREEN
+
 
 //#define WIFI_GATEWAY
 //#define LORA_GATEWAY
@@ -62,7 +80,7 @@ unsigned int mouldId=64;
 #include <FS.h>
 #include <SD.h>
 //#include <mySD.h>
-const int chipSelect = 22;
+const int chipSelect = 17;
 
 // WIFI_LoRa_32 ports
 
@@ -72,11 +90,6 @@ const int chipSelect = 22;
 // GPIO18 -- SX1278's CS
 // GPIO14 -- SX1278's RESET
 // GPIO26 -- SX1278's IRQ(Interrupt Request)
-
-#define SS      18
-#define RST     14
-#define DI0     26
-#define BAND    433E6
 
 static Button btn;
 static RotaryEncoderAcelleration rotor;
@@ -122,17 +135,31 @@ const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of th
 byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
 // A UDP instance to let us send and receive packets over UDP
 WiFiUDP udp;
+
+unsigned long ledB=LOW;
+void BlinkBlueLED(unsigned int val=-1)
+{
+	if (val==-1)
+	{
+	ledB=(ledB==LOW?HIGH:LOW);
+	}
+	else
+	{
+		ledB=val;
+	}
+  digitalWrite(BLUE_LED,ledB);
+}
 void getTime();
 unsigned long sendNTPpacket(IPAddress& address);
 /* END TIME SERVER*/
 
-
+/*
 void loopTask(void *pvParameters)
 {
 	setup();
 	for (;;) {
 		loop();
-		//vTaskDelay(10);
+//		vTaskDelay(10);
 	}
 }
 extern "C" void app_main()
@@ -140,6 +167,7 @@ extern "C" void app_main()
 	initArduino();
 	xTaskCreatePinnedToCore(loopTask, "loopTask", 8192, NULL, 1, NULL, 0);
 }
+*/
 
 
 IRAM_ATTR void UpdateRotorButton()
@@ -314,6 +342,7 @@ void WiFiConnect()
 		strcpy(&msg[strlen(msg)], ".");
     Serial.print(".");
     delay(250);
+		BlinkBlueLED();
 //		u8g2.clearBuffer();
 		u8g2.setCursor(1, 10);
 		u8g2.setDrawColor(1);
@@ -329,6 +358,7 @@ void WiFiConnect()
 		strcpy(&msg[strlen(msg)], ".");
     Serial.print(".");
     delay(250);
+		BlinkBlueLED();
 //		u8g2.clearBuffer();
 		u8g2.setCursor(1, 10);
 		u8g2.setDrawColor(1);
@@ -379,17 +409,58 @@ void WiFiConnect()
 
 extern "C" int rom_phy_get_vdd33();
 
+void testFileIO(fs::FS &fs, const char * path){
+    File file = fs.open(path);
+    static uint8_t buf[512*8];
+    size_t len = 0;
+    uint32_t start = millis();
+    uint32_t end = start;
+    if(file){
+        len = file.size();
+        size_t flen = len;
+        start = millis();
+        while(len){
+            size_t toRead = len;
+            if(toRead > 512){
+                toRead = 512;
+            }
+            file.read(buf, toRead);
+            len -= toRead;
+						BlinkBlueLED();
+        }
+        end = millis() - start;
+        Serial.printf("%u bytes read for %u ms\n", flen, end);
+        file.close();
+    } else {
+        Serial.println("Failed to open file for reading");
+    }
 
+
+    file = fs.open(path, FILE_WRITE);
+    if(!file){
+        Serial.println("Failed to open file for writing");
+        return;
+    }
+
+    size_t i;
+    start = millis();
+    for(i=0; i<2048; i++){
+        file.write(buf, 512);
+				BlinkBlueLED();
+    }
+    end = millis() - start;
+    Serial.printf("%u bytes written for %u ms\n", 2048 * 512, end);
+    file.close();
+}
 
 void setup(void) {
 
   delay(50);
   Serial.begin(115200);
-  delay(100);
+  delay(0);
 
 /*SD CARD*****************************************/
 
-  Serial.println("Initializing SD card...");
   // initialize SD library with SPI pins
   //uint8_t csPin = SD_CHIP_SELECT_PIN, int8_t mosi = -1, int8_t miso = -1, int8_t sck = -1);
 /*  if (!SD.begin(13, 21, 17, 12)) {
@@ -417,19 +488,61 @@ void setup(void) {
   //SdFile root;
 
 //	 void begin(int8_t sck=-1, int8_t miso=-1, int8_t mosi=-1, int8_t ss=-1);
-	SPI.begin(5, 19, 27, 22);
+Serial.println("Initializing SD card...");
+cycleStartMillis = millis();
+SPIClass spi;
+spi.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
+//SPI.begin(18,19,23);
 
 //	uint8_t init(uint8_t sckRateID,
 //  uint8_t chipSelectPin, int8_t mosiPin = -1, int8_t misoPin = -1, int8_t clockPin = -1);
 //  while (!card.init(SPI_HALF_SPEED, 18, 27, 19, 5))
-if (!SD.begin(22))
+
+int c=3;
+pinMode(BLUE_LED, OUTPUT);
+digitalWrite(BLUE_LED,HIGH);
+ledB=HIGH;
+
+while (!SD.begin(SD_CS,spi,18000000,"/sd"))
+//while (!SD.begin(17))
 //while (!card.init(SPI_QUARTER_SPEED, 18))
   {
-    Serial.println("initialization failed. Things to check:");
-    Serial.println("* is a card is inserted?");
-    Serial.println("* Is your wiring correct?");
-    Serial.println("* did you change the chipSelect pin to match your shield or module?");
+		BlinkBlueLED();
+    Serial.println("initialization failed.");
+		delay(200);
+		c--;
+		if (c==0) {break;}
   }
+	if (c>0)
+	{
+	Serial.printf("SD initilized in %i ms.\n", millis()-cycleStartMillis );
+	uint8_t cardType = SD.cardType();
+
+	if(cardType == CARD_NONE){
+			Serial.println("No SD card attached");
+			return;
+	}
+
+	Serial.print("SD Card Type: ");
+	if(cardType == CARD_MMC){
+			Serial.println("MMC");
+	} else if(cardType == CARD_SD){
+			Serial.println("SDSC");
+	} else if(cardType == CARD_SDHC){
+			Serial.println("SDHC");
+	} else {
+			Serial.println("UNKNOWN");
+	}
+
+	uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+	Serial.printf("SD Card Size: %lluMB\n", cardSize);
+	testFileIO(SD, "/test.txt");
+	}
+	digitalWrite(2,LOW);
+	delay(200);
+
+	//listDir(SD, "/", 0);
+
 /*
     // print the type of card
   Serial.print("\nCard type: ");
@@ -483,6 +596,9 @@ if (!SD.begin(22))
 //    Serial.println("Starting LoRa failed!");
 //    while (1);
 //  }
+spi.end();
+SPI.end();
+
 btn.initialize(buttonPin);
 rotor.initialize(rotorPinA, rotorPinB);
 rotor.setMinMax(100, 999);
@@ -490,8 +606,8 @@ rotor.setPosition(500);
 attachInterrupt(digitalPinToInterrupt(rotorPinA), UpdateRotor, CHANGE);
 attachInterrupt(digitalPinToInterrupt(rotorPinB), UpdateRotor, CHANGE);
 
-  SPI.begin(5, 19, 27, 18);
-  LoRa.setPins(SS, RST, DI0);
+SPI.begin(LORA_CLK, LORA_MISO, LORA_MOSI, LORA_CS);
+LoRa.setPins(LORA_CS, LORA_RST, LORA_DI0);
 
   pinMode(MOLD_BUTTON_PIN, INPUT_PULLUP);
   /*
@@ -522,7 +638,7 @@ attachInterrupt(digitalPinToInterrupt(rotorPinB), UpdateRotor, CHANGE);
 
   btStop();
 
-  if (!LoRa.begin(BAND)) {
+  if (!LoRa.begin(LORA_BAND)) {
     Serial.println("Starting LoRa failed!");
     while (1);
   }
@@ -543,14 +659,16 @@ void loraSendPacket(char* msg)
   }
   */
   Serial.print("Sending LORA packet: ");
+	BlinkBlueLED();
   Serial.println(msg);
-  digitalWrite(2, HIGH);
+//  digitalWrite(2, HIGH);
   // send packet
   LoRa.beginPacket();
   LoRa.print(msg);
   //  LoRa.print(counter);
   LoRa.endPacket();
-  digitalWrite(2, LOW);
+	BlinkBlueLED();
+//  digitalWrite(2, LOW);
 //  LoRa.end();
 }
 
@@ -571,9 +689,9 @@ int messagesCnt=0;
 
 void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long mouldOpenedTime)
 {
+	BlinkBlueLED();
   unsigned long epoch = (millis() * 3 / 1000) + unixStartTime;
   cycleTime *= 3;
-
   String et=String(eventType);
   String msg;
   msg=String(String(counterId)+String(";")+
@@ -591,7 +709,7 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
   {
     unsigned long m=millis();
 
-    if (!LoRa.begin(BAND)) {
+    if (!LoRa.begin(LORA_BAND)) {
     Serial.println("Starting LoRa failed!");
     while (1);
     }
@@ -643,6 +761,7 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
     http.end();  //Free resources
   }
   */
+	BlinkBlueLED();
 }
 //7 pixel - u8g2_font_haxrcorp4089_t_cyrillic
 //10 pixel - u8g2_font_unifont_t_cyrillic
@@ -659,10 +778,9 @@ int isDisplayOn=1;
 int prevCycleTime;
 
 void loop(void) {
-  btn.update();
 	//rotor.update();
   long pos = rotor.getPosition();
-
+	btn.update();
   if (btn.isPressed()) {
 		Serial.println("Rotary Button Pressed!");
   }
