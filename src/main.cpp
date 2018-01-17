@@ -79,8 +79,6 @@ unsigned int mouldId=64;
 
 #include <FS.h>
 #include <SD.h>
-//#include <mySD.h>
-const int chipSelect = 17;
 
 // WIFI_LoRa_32 ports
 
