@@ -1,23 +1,46 @@
+#define U8G2_ENABLE
+//#define SD_ENABLE
+//#define LORA32_ENABLE
+//#define WIFI_ENABLE
+//#define HTTPCLIENT_ENABLE
+#define BLE_ENABLE
+//#define ROTARY_ENABLE
+//#define PREFERENCES_ENABLE
+
+//#define WIFI_GATEWAY
+//#define LORA_GATEWAY
+
 #include <Arduino.h>
 
+#ifdef ROTARY_ENABLE
 #include <Button.h>
 #include <TicksPerSecond.h>
 #include <RotaryEncoderAcelleration.h>
+#endif
 
+#ifdef U8G2_ENABLE
 #include <U8g2lib.h>
+#endif
 
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "soc/rtc.h"
 #include "rom/uart.h"
 
+#ifdef WIFI_ENABLE
 #include <WiFi.h>
+#endif
 
+#ifdef HTTPCLIENT_ENABLE
 #include <HTTPClient.h>
-#include <esp_now.h>
+#endif
+//#include <esp_now.h>
 
+#ifdef PREFERENCES_ENABLE
 #include <Preferences.h>
 Preferences preferences;
+#endif
+
 static const int buttonPin = 21;	// the number of the pushbutton pin
 
 static const int rotorPinA = 13;	// One quadrature pin
@@ -41,12 +64,263 @@ static const int rotorPinB = 12;	// the other quadrature pin
 #define SD_MOSI 23 //BLUE
 #define SD_CS 22 //GREEN
 
+#ifdef BLE_ENABLE
+#define GATTC_TAG "GATTC_DEMO"
+#define PROFILE_A_APP_ID 0
 
-//#define WIFI_GATEWAY
-//#define LORA_GATEWAY
+#include <nvs_flash.h>
+#include <esp_bt.h>            // ESP32 BLE
+//#include <esp_bt_device.h>     // ESP32 BLE
+#include <esp_bt_main.h>       // ESP32 BLE
+#include <esp_gap_ble_api.h>   // ESP32 BLE
+//#include <esp_gatts_api.h>     // ESP32 BLE
+#include <esp_gattc_api.h>     // ESP32 BLE
+//#include <esp_gatt_common_api.h>// ESP32 BLE
+#endif
 
-const char* ssid = "ALIANSPLAST";
+const char* ssid = "ALIANSPLAST1";
 const char* password =  "300451566";
+
+
+#ifdef BLE_ENABLE
+#define REMOTE_SERVICE_UUID        0x00FF
+#define REMOTE_NOTIFY_CHAR_UUID    0xFF01
+#define PROFILE_NUM      1
+
+static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
+static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
+static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
+
+static bool connect    = false;
+static bool get_server = false;
+
+static esp_bt_uuid_t remote_filter_service_uuid = {
+    .len = ESP_UUID_LEN_16,
+    .uuid = {.uuid16 = REMOTE_SERVICE_UUID,},
+};
+
+static esp_bt_uuid_t remote_filter_char_uuid = {
+    .len = ESP_UUID_LEN_16,
+    .uuid = {.uuid16 = REMOTE_NOTIFY_CHAR_UUID,},
+};
+
+static esp_bt_uuid_t notify_descr_uuid = {
+    .len = ESP_UUID_LEN_16,
+    .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG,},
+};
+
+static esp_ble_scan_params_t ble_scan_params = {
+    .scan_type              = BLE_SCAN_TYPE_ACTIVE,
+    .own_addr_type          = BLE_ADDR_TYPE_PUBLIC,
+    .scan_filter_policy     = BLE_SCAN_FILTER_ALLOW_ALL,
+    .scan_interval          = 0x50,
+    .scan_window            = 0x30
+};
+
+struct gattc_profile_inst {
+    esp_gattc_cb_t gattc_cb;
+    uint16_t gattc_if;
+    uint16_t app_id;
+    uint16_t conn_id;
+    uint16_t service_start_handle;
+    uint16_t service_end_handle;
+    uint16_t char_handle;
+    esp_bd_addr_t remote_bda;
+};
+
+
+/* One gatt-based profile one app_id and one gattc_if, this array will store the gattc_if returned by ESP_GATTS_REG_EVT */
+
+static struct gattc_profile_inst gl_profile_tab[PROFILE_NUM] = {
+    [PROFILE_A_APP_ID] = {
+        .gattc_cb = gattc_profile_event_handler,
+        .gattc_if = ESP_GATT_IF_NONE,       // Not get the gatt_if, so initial is ESP_GATT_IF_NONE
+    },
+};
+
+
+static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
+{
+    esp_ble_gattc_cb_param_t *p_data = (esp_ble_gattc_cb_param_t *)param;
+    esp_err_t scan_ret;
+    esp_err_t mtu_ret;
+    esp_gatt_srvc_id_t *srvc_id;
+    switch (event) {
+    case ESP_GATTC_REG_EVT:
+        ESP_LOGE(GATTC_TAG, "ESP_GATTC_REG_EVT");
+        scan_ret = esp_ble_gap_set_scan_params(&ble_scan_params);
+        if (scan_ret){
+          ESP_LOGE(GATTC_TAG, "set scan params error, error code = %x", scan_ret);
+        }
+        break;
+    case ESP_GATTC_CONNECT_EVT:
+        ESP_LOGE(GATTC_TAG, "ESP_GATTC_CONNECT_EVT conn_id %d, if %d", p_data->connect.conn_id, gattc_if);
+        break;
+    case ESP_GATTC_OPEN_EVT:
+        ESP_LOGE(GATTC_TAG, "ESP_GATTC_OPEN_EVT");
+        if (param->open.status != ESP_GATT_OK){
+            ESP_LOGE(GATTC_TAG, "open failed, status %d", p_data->open.status);
+        }
+        break;
+    case ESP_GATTC_CFG_MTU_EVT:
+        ESP_LOGE(GATTC_TAG, "ESP_GATTC_CFG_MTU_EVT");
+
+        ESP_LOGE(GATTC_TAG,"config mtu failed, error status = %x", param->cfg_mtu.status);
+        break;
+    case ESP_GATTC_SEARCH_RES_EVT:
+    ESP_LOGE(GATTC_TAG, "ESP_GATTC_SEARCH_RES_EVT");
+        break;
+
+    case ESP_GATTC_SEARCH_CMPL_EVT:
+    ESP_LOGE(GATTC_TAG, "ESP_GATTC_SEARCH_CMPL_EVT");
+        break;
+    case ESP_GATTC_REG_FOR_NOTIFY_EVT:
+    ESP_LOGE(GATTC_TAG, "ESP_GATTC_REG_FOR_NOTIFY_EVT");
+        break;
+
+    case ESP_GATTC_NOTIFY_EVT:
+        if (p_data->notify.is_notify){
+            ESP_LOGE(GATTC_TAG, "ESP_GATTC_NOTIFY_EVT, receive notify value:");
+        }else{
+            ESP_LOGE(GATTC_TAG, "ESP_GATTC_NOTIFY_EVT, receive indicate value:");
+        }
+        esp_log_buffer_hex(GATTC_TAG, p_data->notify.value, p_data->notify.value_len);
+        break;
+    case ESP_GATTC_WRITE_DESCR_EVT:
+        ESP_LOGE(GATTC_TAG, "ESP_GATTC_WRITE_DESCR_EVT");
+        break;
+    case ESP_GATTC_SRVC_CHG_EVT: {
+      ESP_LOGE(GATTC_TAG, "ESP_GATTC_SRVC_CHG_EVT");
+        break;
+    }
+    case ESP_GATTC_WRITE_CHAR_EVT:
+    ESP_LOGE(GATTC_TAG, "ESP_GATTC_WRITE_CHAR_EVT");
+        break;
+    case ESP_GATTC_DISCONNECT_EVT:
+        ESP_LOGE(GATTC_TAG, "ESP_GATTC_DISCONNECT_EVT, reason = %d", p_data->disconnect.reason);
+        break;
+    default:
+        break;
+
+}
+}
+
+
+static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
+{
+    /* If event is register event, store the gattc_if for each profile */
+    if (event == ESP_GATTC_REG_EVT) {
+        if (param->reg.status == ESP_GATT_OK) {
+            gl_profile_tab[param->reg.app_id].gattc_if = gattc_if;
+        } else {
+            ESP_LOGI(GATTC_TAG, "reg app failed, app_id %04x, status %d",
+                    param->reg.app_id,
+                    param->reg.status);
+            return;
+        }
+    }
+
+    /* If the gattc_if equal to profile A, call profile A cb handler,
+     * so here call each profile's callback */
+    do {
+        int idx;
+        for (idx = 0; idx < PROFILE_NUM; idx++) {
+            if (gattc_if == ESP_GATT_IF_NONE || /* ESP_GATT_IF_NONE, not specify a certain gatt_if, need to call every profile cb function */
+                    gattc_if == gl_profile_tab[idx].gattc_if) {
+                if (gl_profile_tab[idx].gattc_cb) {
+                    gl_profile_tab[idx].gattc_cb(event, gattc_if, param);
+                }
+            }
+        }
+    } while (0);
+}
+
+static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
+{
+    uint8_t *adv_name = NULL;
+    uint8_t adv_name_len = 0;
+    switch (event) {
+    case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: {
+      ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT");
+        //the unit of the duration is second
+        uint32_t duration = 30;
+        esp_ble_gap_start_scanning(duration);
+        break;
+    }
+    case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
+        //scan start complete event to indicate scan start successfully or failed
+        ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_SCAN_START_COMPLETE_EVT");
+        if (param->scan_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
+            ESP_LOGE(GATTC_TAG, "scan start failed, error status = %x", param->scan_start_cmpl.status);
+            break;
+        }
+        break;
+    case ESP_GAP_BLE_SCAN_RESULT_EVT: {
+        ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_SCAN_RESULT_EVT");
+
+        esp_ble_gap_cb_param_t *scan_result = (esp_ble_gap_cb_param_t *)param;
+        switch (scan_result->scan_rst.search_evt) {
+        case ESP_GAP_SEARCH_INQ_RES_EVT:
+            esp_log_buffer_hex(GATTC_TAG, scan_result->scan_rst.bda, 6);
+            ESP_LOGE(GATTC_TAG, "searched Adv Data Len %d, Scan Response Len %d", scan_result->scan_rst.adv_data_len, scan_result->scan_rst.scan_rsp_len);
+            adv_name = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv,
+                                                ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
+            ESP_LOGE(GATTC_TAG, "searched Device Name Len %d", adv_name_len);
+            ESP_LOG_BUFFER_CHAR_LEVEL(GATTC_TAG, adv_name, adv_name_len,ESP_LOG_ERROR);
+            ESP_LOGE(GATTC_TAG, "\n");
+//            if (adv_name != NULL) {
+//                if (strlen(remote_device_name) == adv_name_len && strncmp((char *)adv_name, remote_device_name, adv_name_len) == 0) {
+//                    ESP_LOGI(GATTC_TAG, "searched device %s\n", remote_device_name);
+//                    if (connect == false) {
+//                        connect = true;
+//                        ESP_LOGI(GATTC_TAG, "connect to the remote device.");
+//                        esp_ble_gap_stop_scanning();
+//                        esp_ble_gattc_open(gl_profile_tab[PROFILE_A_APP_ID].gattc_if, scan_result->scan_rst.bda, scan_result->scan_rst.ble_addr_type, true);
+//                    }
+//                }
+//            }
+            break;
+        case ESP_GAP_SEARCH_INQ_CMPL_EVT:
+            ESP_LOGE(GATTC_TAG, "ESP_GAP_SEARCH_INQ_CMPL_EVT");
+            esp_ble_gap_start_scanning(60);
+
+            break;
+        default:
+        ESP_LOGE(GATTC_TAG, "ESP_GAP_SEARCH_INQ_CMPL_EVT DEF_EVT:%d",scan_result->scan_rst.search_evt);
+            break;
+        }
+        break;
+    }
+
+    case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
+    ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT status = %x", param->scan_stop_cmpl.status);
+        if (param->scan_stop_cmpl.status != ESP_BT_STATUS_SUCCESS){
+            break;
+        }
+        break;
+
+    case ESP_GAP_BLE_ADV_STOP_COMPLETE_EVT:
+        ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_ADV_STOP_COMPLETE_EVT status = %x", param->adv_stop_cmpl.status);
+        if (param->adv_stop_cmpl.status != ESP_BT_STATUS_SUCCESS){
+            ESP_LOGE(GATTC_TAG, "adv stop failed, error status = %x", param->adv_stop_cmpl.status);
+            break;
+        }
+        break;
+    case ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT:
+         ESP_LOGE(GATTC_TAG, "update connection params status = %d, min_int = %d, max_int = %d,conn_int = %d,latency = %d, timeout = %d",
+                  param->update_conn_params.status,
+                  param->update_conn_params.min_int,
+                  param->update_conn_params.max_int,
+                  param->update_conn_params.conn_int,
+                  param->update_conn_params.latency,
+                  param->update_conn_params.timeout);
+        break;
+    default:
+        break;
+    }
+}
+#endif
+
 
 #ifndef WIFI_GATEWAY
 //sendin
@@ -62,23 +336,28 @@ unsigned int mouldId=64;
 //IPAddress gateway(192, 168, 100, 1);
 //IPAddress subnet(255, 255, 255, 0);
 
+#ifdef U8G2
 #include "SPI.h"
-
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
 #endif
 #ifdef U8X8_HAVE_HW_I2C
 #include <Wire.h>
 #endif
+#endif
 
-#include <SPI.h>
+#ifdef LORA32_ENABLE
 #include <LoRa.h>
+#endif
 
 //#define SOFTWARE_SPI
 //#define USE_SPI_LIB
 
+#ifdef SD_ENABLE
 #include <FS.h>
 #include <SD.h>
+File root;
+#endif
 
 // WIFI_LoRa_32 ports
 
@@ -89,13 +368,16 @@ unsigned int mouldId=64;
 // GPIO14 -- SX1278's RESET
 // GPIO26 -- SX1278's IRQ(Interrupt Request)
 
+#ifdef ROTARY_ENABLE
 static Button btn;
 static RotaryEncoderAcelleration rotor;
 long lastRotor = 0;
+#endif
 
 //U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 4, /* reset=*/ 16);
+#ifdef U8G2_ENABLE
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ 16, /* clock=*/ 15, /* data=*/ 4);   // ESP32 Thing, HW I2C with pin remapping
-File root;
+#endif
 
 
 unsigned long frame;
@@ -123,6 +405,7 @@ char textCounter[16] = "Счетчик:";
 char pcsText[12]=" шт.";
 
 /* TIME SERVER */
+#ifdef WIFI_ENABLE
 unsigned int localPort = 2390;      // local port to listen for UDP packets
 /* Don't hardwire the IP address or we won't get the benefits of the pool.
     Lookup the IP address for the host name instead */
@@ -133,6 +416,7 @@ const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of th
 byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
 // A UDP instance to let us send and receive packets over UDP
 WiFiUDP udp;
+#endif
 
 unsigned long ledB=LOW;
 void BlinkBlueLED(unsigned int val=-1)
@@ -148,7 +432,9 @@ void BlinkBlueLED(unsigned int val=-1)
   digitalWrite(BLUE_LED,ledB);
 }
 void getTime();
+#ifdef WIFI_ENABLE
 unsigned long sendNTPpacket(IPAddress& address);
+#endif
 /* END TIME SERVER*/
 
 /*
@@ -167,7 +453,7 @@ extern "C" void app_main()
 }
 */
 
-
+#ifdef ROTARY_ENABLE
 IRAM_ATTR void UpdateRotorButton()
 {
 	btn.update();
@@ -178,6 +464,7 @@ IRAM_ATTR void UpdateRotor() {
 	rotor.update();
 	interrupts();
 }
+#endif
 
 
 void updateStrings(void)
@@ -273,6 +560,7 @@ void updateStrings(void)
 void switchLanguage(void)
 {
   language=0;
+  #ifdef PREFERENCES_ENABLE
   preferences.begin("COUNTER",false);
   language=preferences.getInt("language");
   language++;
@@ -282,6 +570,7 @@ void switchLanguage(void)
   }
   preferences.putInt("language",language);
   preferences.end();
+  #endif
   Serial.print("Language:");
   Serial.println(language);
   updateStrings();
@@ -289,33 +578,40 @@ void switchLanguage(void)
 
 void saveCounter(int64_t cnt)
 {
+  #ifdef PREFERENCES_ENABLE
   preferences.begin("COUNTER",false);
   preferences.putLong64("counter",cnt);
   preferences.end();
+  #endif
 }
 
 int64_t readCounter()
 {
-  int64_t l;
+  int64_t l=0;
+  #ifdef PREFERENCES_ENABLE
   preferences.begin("COUNTER",false);
   l=preferences.getLong64("counter");
   Serial.print("Counter:");
   Serial.println((uint32_t)l);
   preferences.end();
+  #endif
   return l;
 }
 
 void WiFiOff()
 {
+	#ifdef WIFI_ENABLE
   WiFi.disconnect();
   WiFi.mode(WIFI_OFF);
   esp_wifi_set_mode(WIFI_MODE_NULL);
 //  WiFi.forceSleepBegin();
   delay(5);
+	#endif
 }
 
 void WiFiConnect()
 {
+	#ifdef WIFI_ENABLE
   unsigned long m;
   m=millis();
 //  esp_wifi_init(WIFI_INIT_CONFIG_DEFAULT);
@@ -333,23 +629,29 @@ void WiFiConnect()
   int c = 10;
   Serial.println("Connecting to WiFi");
   WiFi.begin(ssid, password);
+	#ifdef U8G2_ENABLE
 	u8g2.clearBuffer();
+	#endif
 
 	strcpy(msg, "Connecting to WiFi ");
   while (WiFi.status() != WL_CONNECTED && c > 0) {
 		strcpy(&msg[strlen(msg)], ".");
     Serial.print(".");
-    delay(250);
+    delay(300);
 		BlinkBlueLED();
+		#ifdef U8G2_ENABLE
 //		u8g2.clearBuffer();
 		u8g2.setCursor(1, 10);
 		u8g2.setDrawColor(1);
 		u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
 		u8g2.print(msg);
 		u8g2.sendBuffer();
+		#endif
+
     c--;
   }
 	WiFiOff();
+	delay(100);
 	WiFi.begin(ssid, password);
 	c=10;
 	while (WiFi.status() != WL_CONNECTED && c > 0) {
@@ -358,11 +660,13 @@ void WiFiConnect()
     delay(250);
 		BlinkBlueLED();
 //		u8g2.clearBuffer();
+		#ifdef U8G2_ENABLE
 		u8g2.setCursor(1, 10);
 		u8g2.setDrawColor(1);
 		u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
 		u8g2.print(msg);
 		u8g2.sendBuffer();
+		#endif
     c--;
   }
 
@@ -374,9 +678,11 @@ void WiFiConnect()
 
 		strcpy(msg, "Connected to:");
 		strcpy(&msg[strlen(msg)], ssid);
+		#ifdef U8G2_ENABLE
 		u8g2.setCursor(1, 10+8);
 		u8g2.print(msg);
 		u8g2.sendBuffer();
+		#endif
 
     Serial.print("Tooked time:");
     Serial.println((millis()-m)*3);
@@ -399,14 +705,19 @@ void WiFiConnect()
 	{
 		strcpy(msg, "Failed to connect to:");
 		strcpy(&msg[strlen(msg)], ssid);
+		#ifdef U8G2_ENABLE
 		u8g2.setCursor(1, 10+8);
 		u8g2.print(msg);
 		u8g2.sendBuffer();
+		delay(1000);
+		#endif
 	}
+	#endif
 }
 
 extern "C" int rom_phy_get_vdd33();
 
+#ifdef SD_ENABLE
 void testFileIO(fs::FS &fs, const char * path){
     File file = fs.open(path);
     static uint8_t buf[512*8];
@@ -450,12 +761,71 @@ void testFileIO(fs::FS &fs, const char * path){
     Serial.printf("%u bytes written for %u ms\n", 2048 * 512, end);
     file.close();
 }
+#endif
 
 void setup(void) {
 
   delay(50);
   Serial.begin(115200);
-  delay(0);
+  delay(200);
+
+
+#ifdef BLE_ENABLE
+esp_log_level_set(GATTC_TAG, ESP_LOG_VERBOSE);
+esp_err_t ret = nvs_flash_init();
+if (ret == ESP_ERR_NVS_NO_FREE_PAGES) {
+    nvs_flash_erase();
+    ret = nvs_flash_init();
+}
+
+ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
+esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+ret = esp_bt_controller_init(&bt_cfg);
+if (ret) {
+    ESP_LOGE(GATTC_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
+    return;
+}
+ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+if (ret) {
+    ESP_LOGE(GATTC_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+    return;
+}
+ret = esp_bluedroid_init();
+if (ret) {
+    ESP_LOGE(GATTC_TAG, "%s init bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+    return;
+}
+
+ret = esp_bluedroid_enable();
+if (ret) {
+    ESP_LOGE(GATTC_TAG, "%s enable bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+    return;
+}
+//register the  callback function to the gap module
+ret = esp_ble_gap_register_callback(esp_gap_cb);
+if (ret){
+    ESP_LOGE(GATTC_TAG, "%s gap register failed, error code = %x\n", __func__, ret);
+    return;
+}
+//register the callback function to the gattc module
+ret = esp_ble_gattc_register_callback(esp_gattc_cb);
+if(ret){
+    ESP_LOGE(GATTC_TAG, "%s gattc register failed, error code = %x\n", __func__, ret);
+    return;
+}
+
+ret = esp_ble_gattc_app_register(PROFILE_A_APP_ID);
+if (ret){
+    ESP_LOGE(GATTC_TAG, "%s gattc app register failed, error code = %x\n", __func__, ret);
+}
+/*
+esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
+ if (local_mtu_ret) {
+     ESP_LOGE(GATTC_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
+ }
+ */
+ ESP_LOGE(GATTC_TAG, "BLE Init finished.");
+#endif
 
 /*SD CARD*****************************************/
 
@@ -486,6 +856,28 @@ void setup(void) {
   //SdFile root;
 
 //	 void begin(int8_t sck=-1, int8_t miso=-1, int8_t mosi=-1, int8_t ss=-1);
+//BLEDevice::init("");
+/*
+text       data     bss     dec     hex filename
++LORA32 1218006  443552   61992 1723550  1a4c9e .pioenvs/heltec_wifi_lora_32/firmware.elf
+text       data     bss     dec     hex filename
+NO LORA32 1216310  442520   61424 1720254  1a3fbe .pioenvs/heltec_wifi_lora_32/firmware.elf
+text       data     bss     dec     hex filename
+552054   142360   35952  730366   b24fe .pioenvs/heltec_wifi_lora_32/firmware.elf
+*/
+/*
+BLEScan* pBLEScan = BLEDevice::getScan(); //create new scan
+pBLEScan->setAdvertisedDeviceCallbacks(new MyBLEAdvertisedDeviceCallbacks());
+pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
+Serial.println("BLE Scan start!");
+BLEScanResults foundDevices = pBLEScan->start(BLE_SCAN_TIME);
+Serial.print("Devices found: ");
+Serial.println(foundDevices.getCount());
+Serial.println("Scan done!");
+*/
+
+
+#ifdef SD_ENABLE
 Serial.println("Initializing SD card...");
 cycleStartMillis = millis();
 SPIClass spi;
@@ -597,15 +989,21 @@ while (!SD.begin(SD_CS,spi,18000000,"/sd"))
 spi.end();
 SPI.end();
 
+#endif
+
+#ifdef ROTARY_ENABLE
 btn.initialize(buttonPin);
 rotor.initialize(rotorPinA, rotorPinB);
 rotor.setMinMax(100, 999);
 rotor.setPosition(500);
 attachInterrupt(digitalPinToInterrupt(rotorPinA), UpdateRotor, CHANGE);
 attachInterrupt(digitalPinToInterrupt(rotorPinB), UpdateRotor, CHANGE);
+#endif
 
+#ifdef LORA32_ENABLE
 SPI.begin(LORA_CLK, LORA_MISO, LORA_MOSI, LORA_CS);
 LoRa.setPins(LORA_CS, LORA_RST, LORA_DI0);
+#endif
 
   pinMode(MOLD_BUTTON_PIN, INPUT_PULLUP);
   /*
@@ -618,28 +1016,36 @@ LoRa.setPins(LORA_CS, LORA_RST, LORA_DI0);
   rtc_clk_cpu_freq_set(RTC_CPU_FREQ_80M);
   // rtc_clk_cpu_freq_set(RTC_CPU_FREQ_160M);
   //rtc_clk_cpu_freq_set(RTC_CPU_FREQ_240M);
-  u8g2.begin();
+	#ifdef U8G2_ENABLE
+	u8g2.begin();
   u8g2.setPowerSave(0);
   u8g2.setFlipMode(1);
   u8g2.setContrast(1);
   u8g2.enableUTF8Print();   // enable UTF8 support for the Arduino print() function
+	#endif
   cycleStartMillis = millis();
   machineStatus = 0;
 
   moldCycleCounter = readCounter();
+	#ifdef WIFI_ENABLE
   WiFiConnect();
-  getTime();
+	if (WiFi.status() == WL_CONNECTED)
+	{
+  	getTime();
+	}
+  btStop();
+	#endif
 
   float vdd = rom_phy_get_vdd33() / 1000.0;
   Serial.print("VDD:");
   Serial.println(vdd);
 
-  btStop();
-
+	#ifdef LORA32_ENABLE
   if (!LoRa.begin(LORA_BAND)) {
     Serial.println("Starting LoRa failed!");
     while (1);
   }
+	#endif
   #ifndef LORA_GATEWAY
     WiFiOff();
   #endif
@@ -656,6 +1062,7 @@ void loraSendPacket(char* msg)
     while (1);
   }
   */
+	#ifdef LORA32_ENABLE
   Serial.print("Sending LORA packet: ");
 	BlinkBlueLED();
   Serial.println(msg);
@@ -668,6 +1075,7 @@ void loraSendPacket(char* msg)
 	BlinkBlueLED();
 //  digitalWrite(2, LOW);
 //  LoRa.end();
+	#endif
 }
 
 static unsigned short days[4][12] =
@@ -677,9 +1085,11 @@ static unsigned short days[4][12] =
   { 731, 762, 790, 821, 851, 882, 912, 943, 974, 1004, 1035, 1065},
   {1096, 1127, 1155, 1186, 1216, 1247, 1277, 1308, 1339, 1369, 1400, 1430},
 };
-
+#ifdef HTTPCLIENT_ENABLE
 char URL[512];
 HTTPClient http;
+#endif
+
 int displayOn;
 
 String* messages[128];
@@ -707,6 +1117,7 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
   {
     unsigned long m=millis();
 
+		#ifdef LORA32_ENABLE
     if (!LoRa.begin(LORA_BAND)) {
     Serial.println("Starting LoRa failed!");
     while (1);
@@ -728,6 +1139,8 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
     Serial.println((millis()-m)*3);
 
     LoRa.end();
+		#endif
+
   }
   /*
   if (WiFi.status() == WL_CONNECTED) { //Check WiFi connection status
@@ -769,7 +1182,9 @@ unsigned long moldOpenTime;
 
 int displayStatus=0;
 
+#ifdef LORA32_ENABLE
 char loraPacket[512];
+#endif
 
 int prevDisplayButtonStatus=1;
 int isDisplayOn=1;
@@ -777,6 +1192,7 @@ int prevCycleTime;
 
 void loop(void) {
 	//rotor.update();
+  #ifdef ROTARY_ENABLE
   long pos = rotor.getPosition();
 	btn.update();
   if (btn.isPressed()) {
@@ -791,6 +1207,7 @@ void loop(void) {
     Serial.println(tps);
   }
   lastRotor = pos;
+  #endif
 
     displayStatus = 1;
     #ifdef LORA_GATEWAY
@@ -835,8 +1252,10 @@ void loop(void) {
        if (ii==6) machineId=String(str1);
        if (ii==7) mouldId=String(str1);
 
-    if (ii==7 && WiFi.status() == WL_CONNECTED) { //Check WiFi connection status
-    String URL = String("http://82.209.207.138:88/alians_cms1.php?cmd=execute_sql&sql=INSERT%20INTO%20ap_crm_counters_clamp(counterId,timestamp,cycletime,counterValue,eventType,mouldOpenedDuration,machineId,mouldId)%20values(")+
+			 #ifdef WIFI_ENABLE
+			 if (ii==7 && WiFi.status() == WL_CONNECTED) { //Check WiFi connection status
+		#ifdef HTTPCLIENT_ENABLE
+		String URL = String("http://82.209.207.138:88/alians_cms1.php?cmd=execute_sql&sql=INSERT%20INTO%20ap_crm_counters_clamp(counterId,timestamp,cycletime,counterValue,eventType,mouldOpenedDuration,machineId,mouldId)%20values(")+
                  String(counterId)+String(",")+
                  String(timestamp) +String(",")+
                  String(cycletime) + String(",") +
@@ -861,13 +1280,16 @@ void loop(void) {
     }
     http.end();  //Free resources
     delay(50);
+		#endif
     }
+		#endif
+
        Serial.print(str1);
        Serial.print(";");
        ii++;
       }
     }
-
+		#ifdef U8G2_ENABLE
       u8g2.setPowerSave(0);
       u8g2.setFontDirection(0);
       u8g2.clearBuffer();
@@ -876,12 +1298,17 @@ void loop(void) {
 
       u8g2.setCursor(1, 9);
       u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
-      String s1=String("RSSI:")+String(LoRa.packetRssi());
+      String s1=String("");
+      #ifdef LORA32_ENABLE
+      s1=String("RSSI:")+String(LoRa.packetRssi());
+      #endif
       String s2=String("P.SIZE:")+String(packetSize);
       u8g2.print(s1);
       u8g2.setCursor(1, 16);
       u8g2.print(s2);
       u8g2.sendBuffer();
+	  #endif
+
     }
 //    delay(50);
     return;
@@ -902,7 +1329,9 @@ void loop(void) {
       Serial.println(LoRa.packetRssi());
     }
   */
-  u8g2_uint_t w;
+	#ifdef U8G2_ENABLE
+	u8g2_uint_t w;
+	#endif
   frame++; frame = frame & ((65536 * 2) - 1);
   /*
     if (frame>65000) {
@@ -1008,11 +1437,15 @@ void loop(void) {
     isDisplayOn=(isDisplayOn+1)&1;
     if (isDisplayOn==0)
     {
+			#ifdef U8G2_ENABLE
       u8g2.setPowerSave(1);
+			#endif
     }
     else
     {
+			#ifdef U8G2_ENABLE
       u8g2.setPowerSave(0);
+			#endif
     }
   }
 
@@ -1027,6 +1460,7 @@ void loop(void) {
   updateStrings();
   char machineFullName[100];
 
+	#ifdef U8G2_ENABLE
   u8g2.setFontDirection(0);
 
   u8g2.clearBuffer();
@@ -1039,7 +1473,8 @@ void loop(void) {
   u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
   u8g2.print("#");
   u8g2.setCursor(6, 10);
-  u8g2.setFont(u8g2_font_crox1tb_tf);
+//  u8g2.setFont(u8g2_font_crox1tb_tf);
+	u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
   u8g2.print(moldInvId);
 
   u8g2.setDrawColor(1);
@@ -1049,7 +1484,8 @@ void loop(void) {
 
   u8g2.setDrawColor(1);
   u8g2.setCursor(0, 20);
-  u8g2.setFont(u8g2_font_5x7_tf);
+  //u8g2.setFont(u8g2_font_5x7_tf);
+	u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
 
   //  strcpy(machineName, "ARBURG 150T");
   sprintf(machineFullName, "%s-%s", machineNumber, machineName);
@@ -1070,13 +1506,14 @@ void loop(void) {
   }
 
   if (language == 0) {
-    u8g2.setFont(u8g2_font_unifont_t_cyrillic);
+		u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+//    u8g2.setFont(u8g2_font_unifont_t_cyrillic);
   } else {
     u8g2.setFont(u8g2_font_timB10_tf);
   }
   if (language == 2)
   {
-    u8g2.setFont(u8g2_font_timB10_tr);
+//    u8g2.setFont(u8g2_font_timB10_tr);
   }
   w = u8g2.getUTF8Width(machineStatusText);
   u8g2.setCursor((128 - w) / 2, 20 + 13);
@@ -1084,7 +1521,9 @@ void loop(void) {
 
   u8g2.setDrawColor(1);
   u8g2.setCursor(0, 32 + 8 + 4 + 6 + 2);
-  u8g2.setFont(u8g2_font_10x20_t_cyrillic);
+//  u8g2.setFont(u8g2_font_10x20_t_cyrillic);
+//	u8g2.setFont(u8g2_font_helvB12_te);
+  u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
   if (language > 0) {
     u8g2.setFont(u8g2_font_helvB12_te);
   }
@@ -1093,7 +1532,9 @@ void loop(void) {
   int sec = currentCycleTime / 1000;
   int dsec = (currentCycleTime - sec * 1000) / 10;
 
-  u8g2.setFont(u8g2_font_timB14_tn);
+//  u8g2.setFont(u8g2_font_timB14_tn);
+	u8g2.setFont(u8g2_font_helvB12_te);
+
   u8g2.print(sec);
   u8g2.print(".");
   u8g2.print(dsec);
@@ -1123,7 +1564,7 @@ void loop(void) {
   u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
   if (language==2)
   {
-    u8g2.setFont(u8g2_font_lucasfont_alternate_tr);
+//    u8g2.setFont(u8g2_font_lucasfont_alternate_tr);
   }
   u8g2.print(textCounter);
 
@@ -1187,14 +1628,15 @@ void loop(void) {
 
 
   u8g2.sendBuffer();
+	#endif
 
   //  esp_deep_sleep(1000000/10);
   //delay(30);
 }
 
-
 void getTime()
 {
+	#ifdef WIFI_ENABLE
   Serial.println("Starting UDP");
   if (udp.begin(localPort) == 1)
   {
@@ -1211,11 +1653,13 @@ void getTime()
   while ((c--) > 0)
   {
 			strcpy(&msg[strlen(msg)], ".");
+			#ifdef U8G2_ENABLE
 			u8g2.setCursor(1, 10+8+8);
 			u8g2.setDrawColor(1);
 			u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
 			u8g2.print(msg);
 			u8g2.sendBuffer();
+			#endif
 
     delay(100);
     int cb = udp.parsePacket();
@@ -1268,8 +1712,10 @@ void getTime()
       break;
     }
   }
+	#endif
 }
 // send an NTP request to the time server at the given address
+#ifdef WIFI_ENABLE
 unsigned long sendNTPpacket(IPAddress& address)
 {
   Serial.println("sending NTP packet...");
@@ -1293,141 +1739,84 @@ unsigned long sendNTPpacket(IPAddress& address)
   udp.write(packetBuffer, NTP_PACKET_SIZE);
   udp.endPacket();
 }
+#endif
+
 #else
-/**
- * ESP-NOW to Watson IoT Gateway Example
- *
- * This shows how to use an ESP8266/Arduino as a Gateway device on the Watson
- * IoT Platform enabling remote ESP-NOW devices to be Watson IoT Devices.
- *
- * Author: Anthony Elder
- * License: Apache License v2
- */
-//#include <ESP8266WiFi.h>
-//#include <PubSubClient.h>
-//extern "C" {
-//  #include <espnow.h>
-//  #include "user_interface.h"
-//}
+#include <WiFi.h>
 
-//-------- Customise these values -----------
-//const char* ssid = "<yourSSID>";
-//const char* password = "<yourWifiPassword>";
+#include <esp_bt.h>            // ESP32 BLE
+#include <esp_bt_device.h>     // ESP32 BLE
+#include <esp_bt_main.h>       // ESP32 BLE
+#include <esp_gap_ble_api.h>   // ESP32 BLE
+#include <esp_gatts_api.h>     // ESP32 BLE
+#include <esp_gattc_api.h>     // ESP32 BLE
+#include <esp_gatt_common_api.h>// ESP32 BLE
 
-#define ORG "<yourOrg>"
-#define DEVICE_TYPE "<yourGatewayType>"
-#define DEVICE_ID "<yourGatewayDevice>"
-#define TOKEN "<yourGatewayToken>"
-//-------- Customise the above values --------
-
-/* Set a private Mac Address
- *  http://serverfault.com/questions/40712/what-range-of-mac-addresses-can-i-safely-use-for-my-virtual-machines
- * Note: the point of setting a specific MAC is so you can replace this Gateway ESP8266 device with a new one
- * and the new gateway will still pick up the remote sensors which are still sending to the old MAC
- */
-uint8_t mac[] = {0x36, 0x33, 0x33, 0x33, 0x33, 0x33};
-void initVariant() {
-  wifi_set_macaddr(SOFTAP_IF, &mac[0]);
-}
-
-WiFiClient wifiClient;
-String deviceMac;
-
-volatile boolean haveReading = false;
-
-/* Presently it doesn't seem posible to use both WiFi and ESP-NOW at the
- * same time. This gateway gets around that be starting just ESP-NOW and
- * when a message is received switching on WiFi to sending the MQTT message
- * to Watson, and then restarting the ESP. The restart is necessary as
- * ESP-NOW doesn't seem to work again even after WiFi is disabled.
- * Hopefully this will get fixed in the ESP SDK at some point.
- */
-
-void setup() {
-  Serial.begin(115200); Serial.println();
-  WiFi.mode(WIFI_STA);
-  Serial.print("This node AP mac: "); Serial.println(WiFi.softAPmacAddress());
-  Serial.print("This node STA mac: "); Serial.println(WiFi.macAddress());
-
-  initEspNow();
-}
-
-int heartBeat;
-
-void loop() {
-  if (millis()-heartBeat > 30000) {
-    Serial.println("Waiting for ESP-NOW messages...");
-    heartBeat = millis();
+void setup(void) {
+  #ifdef BLE_ENABLE
+  esp_log_level_set(GATTC_TAG, ESP_LOG_VERBOSE);
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES) {
+      nvs_flash_erase();
+      ret = nvs_flash_init();
   }
 
-  if (haveReading) {
-    haveReading = false;
-    wifiConnect();
-//    sendToWatson();
-    client.disconnect();
-    delay(200);
-    ESP.restart(); // <----- Reboots to re-enable ESP-NOW
+  ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
+  esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+  ret = esp_bt_controller_init(&bt_cfg);
+  if (ret) {
+      ESP_LOGE(GATTC_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
+      return;
   }
-}
-
-void sendToWatson() {
-}
-
-void initEspNow() {
-  if (esp_now_init()!=0) {
-    Serial.println("*** ESP_Now init failed");
-    ESP.restart();
+  ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+  if (ret) {
+      ESP_LOGE(GATTC_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
+      return;
+  }
+  ret = esp_bluedroid_init();
+  if (ret) {
+      ESP_LOGE(GATTC_TAG, "%s init bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+      return;
   }
 
-  esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
-
-  esp_now_register_recv_cb([](uint8_t *mac, uint8_t *data, uint8_t len) {
-
-    deviceMac = "";
-    deviceMac += String(mac[0], HEX);
-    deviceMac += String(mac[1], HEX);
-    deviceMac += String(mac[2], HEX);
-    deviceMac += String(mac[3], HEX);
-    deviceMac += String(mac[4], HEX);
-    deviceMac += String(mac[5], HEX);
-
-    memcpy(&sensorData, data, sizeof(sensorData));
-
-    Serial.print("recv_cb, msg from device: "); Serial.print(deviceMac);
-//    Serial.printf(" Temp=%0.1f, Hum=%0.0f%%, pressure=%0.0fmb\n",
-//       sensorData.temp, sensorData.humidity, sensorData.pressure);
-    haveReading = true;
-  });
-}
-lan
-void wifiConnect()
-{
-  WiFi.mode(WIFI_STA);
-  Serial.print("Connecting to "); Serial.print(ssid);
-  WiFi.begin(ssid, password);
-//	u8g2.setPowerSave(0);
-
-  while (WiFi.status() != WL_CONNECTED) {
-     delay(250);
-//		 u8g2.setFontDirection(0);
-//		 u8g2.clearBuffer();
-     Serial.print(".");
-
+  ret = esp_bluedroid_enable();
+  if (ret) {
+      ESP_LOGE(GATTC_TAG, "%s enable bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
+      return;
   }
-  Serial.print("\nWiFi connected, IP address: "); Serial.println(WiFi.localIP());
-}
+  //register the  callback function to the gap module
+  ret = esp_ble_gap_register_callback(esp_gap_cb);
+  if (ret){
+      ESP_LOGE(GATTC_TAG, "%s gap register failed, error code = %x\n", __func__, ret);
+      return;
+  }
+  //register the callback function to the gattc module
+  ret = esp_ble_gattc_register_callback(esp_gattc_cb);
+  if(ret){
+      ESP_LOGE(GATTC_TAG, "%s gattc register failed, error code = %x\n", __func__, ret);
+      return;
+  }
 
-
-void publishTo(const char* topic, const char* payload) {
-  Serial.print("publish ");
+  ret = esp_ble_gattc_app_register(PROFILE_A_APP_ID);
+  if (ret){
+      ESP_LOGE(GATTC_TAG, "%s gattc app register failed, error code = %x\n", __func__, ret);
+  }
   /*
-  if (client.publish(topic, payload)) {
-    Serial.print(" OK ");
-  } else {
-    Serial.print(" FAILED ");
-  }
-  Serial.print(" topic: "); Serial.print(topic);
-  Serial.print(" payload: "); Serial.println(payload);
-  */
+  esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
+   if (local_mtu_ret) {
+       ESP_LOGE(GATTC_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
+   }
+   */
+   ESP_LOGE(GATTC_TAG, "BLE Init finished.");
+  #endif
+
+  //BLEDevice::init("");
+
+  delay(50);
+  Serial.begin(115200);
+  delay(0);
+//	WiFi.mode(WIFI_STA);
+}
+void loop(void) {
 }
 #endif
