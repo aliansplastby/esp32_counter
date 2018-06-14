@@ -1,9 +1,9 @@
 #define U8G2_ENABLE
 //#define SD_ENABLE
 //#define LORA32_ENABLE
-//#define WIFI_ENABLE
+#define WIFI_ENABLE
 //#define HTTPCLIENT_ENABLE
-#define BLE_ENABLE
+//#define BLE_ENABLE
 //#define ROTARY_ENABLE
 //#define PREFERENCES_ENABLE
 
@@ -11,6 +11,10 @@
 //#define LORA_GATEWAY
 
 #include <Arduino.h>
+const char* ssid = "ALIANSPLAST1";
+const char* password =  "300451566";
+
+
 
 #ifdef ROTARY_ENABLE
 #include <Button.h>
@@ -77,9 +81,6 @@ static const int rotorPinB = 12;	// the other quadrature pin
 #include <esp_gattc_api.h>     // ESP32 BLE
 //#include <esp_gatt_common_api.h>// ESP32 BLE
 #endif
-
-const char* ssid = "ALIANSPLAST1";
-const char* password =  "300451566";
 
 
 #ifdef BLE_ENABLE
