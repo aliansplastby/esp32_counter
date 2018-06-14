@@ -1,20 +1,16 @@
-#define U8G2_ENABLE
-//#define SD_ENABLE
-//#define LORA32_ENABLE
-#define WIFI_ENABLE
-//#define HTTPCLIENT_ENABLE
-//#define BLE_ENABLE
-//#define ROTARY_ENABLE
-//#define PREFERENCES_ENABLE
+#define U8G2_ENABLE //40KB
+//#define SD_ENABLE //40KB
+//#define LORA32_ENABLE //7KB
+#define WIFI_ENABLE //430KB
+//#define HTTPCLIENT_ENABLE //JSON+HTTP=5KB
+//#define BLE_ENABLE //750kb
+//#define ROTARY_ENABLE //3kb
+//#define PREFERENCES_ENABLE //8kb
 
 //#define WIFI_GATEWAY
 //#define LORA_GATEWAY
 
 #include <Arduino.h>
-const char* ssid = "ALIANSPLAST1";
-const char* password =  "300451566";
-
-
 
 #ifdef ROTARY_ENABLE
 #include <Button.h>
@@ -32,11 +28,14 @@ const char* password =  "300451566";
 #include "rom/uart.h"
 
 #ifdef WIFI_ENABLE
+const char* ssid = "ALIANSPLAST";
+const char* password =  "300451566";
 #include <WiFi.h>
 #endif
 
 #ifdef HTTPCLIENT_ENABLE
 #include <HTTPClient.h>
+#include <JsonParser.h>
 #endif
 //#include <esp_now.h>
 
@@ -45,8 +44,7 @@ const char* password =  "300451566";
 Preferences preferences;
 #endif
 
-static const int buttonPin = 21;	// the number of the pushbutton pin
-
+static const int rotorButtonPin = 21;	// the number of the pushbutton pin
 static const int rotorPinA = 13;	// One quadrature pin
 static const int rotorPinB = 12;	// the other quadrature pin
 
@@ -262,6 +260,8 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
         esp_ble_gap_cb_param_t *scan_result = (esp_ble_gap_cb_param_t *)param;
         switch (scan_result->scan_rst.search_evt) {
         case ESP_GAP_SEARCH_INQ_RES_EVT:
+            Serial.printf("BLE MAC FOUND:%x:%x:%x:%x:%x:%x\n",scan_result->scan_rst.bda[0],scan_result->scan_rst.bda[1],scan_result->scan_rst.bda[2],scan_result->scan_rst.bda[3],scan_result->scan_rst.bda[4],scan_result->scan_rst.bda[5] );
+/*
             esp_log_buffer_hex(GATTC_TAG, scan_result->scan_rst.bda, 6);
             ESP_LOGE(GATTC_TAG, "searched Adv Data Len %d, Scan Response Len %d", scan_result->scan_rst.adv_data_len, scan_result->scan_rst.scan_rsp_len);
             adv_name = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv,
@@ -269,6 +269,10 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
             ESP_LOGE(GATTC_TAG, "searched Device Name Len %d", adv_name_len);
             ESP_LOG_BUFFER_CHAR_LEVEL(GATTC_TAG, adv_name, adv_name_len,ESP_LOG_ERROR);
             ESP_LOGE(GATTC_TAG, "\n");
+            if (adv_name != NULL) {
+                    ESP_LOGI(GATTC_TAG, "Found device %s\n", adv_name);
+            }
+*/
 //            if (adv_name != NULL) {
 //                if (strlen(remote_device_name) == adv_name_len && strncmp((char *)adv_name, remote_device_name, adv_name_len) == 0) {
 //                    ESP_LOGI(GATTC_TAG, "searched device %s\n", remote_device_name);
@@ -321,7 +325,6 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
     }
 }
 #endif
-
 
 #ifndef WIFI_GATEWAY
 //sendin
@@ -675,7 +678,7 @@ void WiFiConnect()
   {
     Serial.println(".");
     Serial.print("Connected to the WiFi network:");
-    Serial.println(ssid);
+    Serial.print(ssid);
 
 		strcpy(msg, "Connected to:");
 		strcpy(&msg[strlen(msg)], ssid);
@@ -685,8 +688,8 @@ void WiFiConnect()
 		u8g2.sendBuffer();
 		#endif
 
-    Serial.print("Tooked time:");
-    Serial.println((millis()-m)*3);
+    Serial.printf(" in %i sec\r\n",((int)(millis()-m))/1000);
+    //Serial.println((millis()-m)*3);
 
     ip = WiFi.localIP();
     Serial.print("IP: ");
@@ -713,6 +716,48 @@ void WiFiConnect()
 		delay(1000);
 		#endif
 	}
+
+  /******************************************JSON TEST************************************************/
+  #ifdef HTTPCLIENT_ENABLE
+  char json[] = "{\"Name\":\"Blanchon\",\"Skills\":[\"C\",\"C++\",\"C#\"],\"Age\":32,\"Online\":true}";
+
+  JsonParser<32> parser;
+
+  Serial.print("Parse ");
+  Serial.println(json);
+
+  JsonHashTable hashTable = parser.parseHashTable(json);
+
+  if (!hashTable.success())
+  {
+      Serial.println("JsonParser.parseHashTable() failed");
+      return;
+  }
+
+  char* name = hashTable.getString("Name");
+  Serial.print("name=");
+  Serial.println(name);
+
+  JsonArray skills = hashTable.getArray("Skills");
+  Serial.println("skills:");
+  for (int i = 0; i < skills.getLength(); i++)
+  {
+      char* value = skills.getString(i);
+      Serial.print(i);
+      Serial.print(" ");
+      Serial.println(value);
+  }
+
+  int age = hashTable.getLong("Age");
+  Serial.print("age=");
+  Serial.println(age);
+
+  bool online = hashTable.getBool("Online");
+  Serial.print("online=");
+  Serial.println(online);
+  #endif
+  //*****************************
+
 	#endif
 }
 
@@ -765,11 +810,11 @@ void testFileIO(fs::FS &fs, const char * path){
 #endif
 
 void setup(void) {
-
-  delay(50);
   Serial.begin(115200);
-  delay(200);
 
+  uint8_t mc[6];
+  esp_efuse_mac_get_default(mc);
+  Serial.printf("\r\nBoard MAC address: %x:%x:%x:%x:%x:%x\r\n", mc[0],mc[1],mc[2],mc[3],mc[4],mc[5] );
 
 #ifdef BLE_ENABLE
 esp_log_level_set(GATTC_TAG, ESP_LOG_VERBOSE);
@@ -993,7 +1038,7 @@ SPI.end();
 #endif
 
 #ifdef ROTARY_ENABLE
-btn.initialize(buttonPin);
+btn.initialize(rotorButtonPin);
 rotor.initialize(rotorPinA, rotorPinB);
 rotor.setMinMax(100, 999);
 rotor.setPosition(500);
@@ -1087,8 +1132,11 @@ static unsigned short days[4][12] =
   {1096, 1127, 1155, 1186, 1216, 1247, 1277, 1308, 1339, 1369, 1400, 1430},
 };
 #ifdef HTTPCLIENT_ENABLE
-char URL[512];
 HTTPClient http;
+#else
+#ifdef LORA32_ENABLE
+char URL[512];
+#endif
 #endif
 
 int displayOn;
@@ -1117,7 +1165,6 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
   if (messagesCnt==5 || et=="PAUSE_PRODUCTION_START" || et=="PAUSE_PRODUCTION_END")
   {
     unsigned long m=millis();
-
 		#ifdef LORA32_ENABLE
     if (!LoRa.begin(LORA_BAND)) {
     Serial.println("Starting LoRa failed!");
@@ -1290,6 +1337,7 @@ void loop(void) {
        ii++;
       }
     }
+
 		#ifdef U8G2_ENABLE
       u8g2.setPowerSave(0);
       u8g2.setFontDirection(0);
@@ -1741,10 +1789,9 @@ unsigned long sendNTPpacket(IPAddress& address)
   udp.endPacket();
 }
 #endif
-
 #else
-#include <WiFi.h>
-
+#ifdef BLE_ENABLE
+//#include <WiFi.h>
 #include <esp_bt.h>            // ESP32 BLE
 #include <esp_bt_device.h>     // ESP32 BLE
 #include <esp_bt_main.h>       // ESP32 BLE
@@ -1755,6 +1802,11 @@ unsigned long sendNTPpacket(IPAddress& address)
 
 void setup(void) {
   #ifdef BLE_ENABLE
+  uint8_t* mac;
+  Serial.begin(115200);
+  mc=esp_bt_dev_get_address();
+  Serial.printf("\r\nBoard MAC address: %x:%x:%x:%x:%x:%x\r\n", mc[0],mc[1],mc[2],mc[3],mc[4],mc[5] );
+
   esp_log_level_set(GATTC_TAG, ESP_LOG_VERBOSE);
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES) {
@@ -1814,10 +1866,10 @@ void setup(void) {
   //BLEDevice::init("");
 
   delay(50);
-  Serial.begin(115200);
   delay(0);
 //	WiFi.mode(WIFI_STA);
 }
 void loop(void) {
 }
+#endif
 #endif
