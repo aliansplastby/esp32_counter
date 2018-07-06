@@ -2,7 +2,7 @@
 //#define SD_ENABLE //40KB
 //#define LORA32_ENABLE //7KB
 #define WIFI_ENABLE //430KB
-//#define HTTPCLIENT_ENABLE //JSON+HTTP=5KB
+#define HTTPCLIENT_ENABLE //JSON+HTTP=5KB
 //#define BLE_ENABLE //750kb
 //#define ROTARY_ENABLE //3kb
 //#define PREFERENCES_ENABLE //8kb
@@ -398,11 +398,11 @@ unsigned int machineStatus;
 #define PRODUCTION_STOPPED 2
 
 char msg[128] = "______";
-char productArticle[100] = "ДВ-1,0/131";
-char moldInvId[4] = "963";
+char productArticle[100] = "ДВ-1,0/131 2.1,2.2";
+char moldInvId[4] = "746";
 char machineNumber[10] = "1.12";
 char machineName[32] = "ARBURG630H/2300-800";
-char machineStatusText[32] = "Машина работает";
+char machineStatusText[64] = "Машина работает";
 char textCycle[32] = "Цикл:";
 char textSec[10] = "сек.";
 char textCounter[16] = "Счетчик:";
@@ -435,8 +435,9 @@ void BlinkBlueLED(unsigned int val=-1)
 	}
   digitalWrite(BLUE_LED,ledB);
 }
-void getTime();
+
 #ifdef WIFI_ENABLE
+void getTime();
 unsigned long sendNTPpacket(IPAddress& address);
 #endif
 /* END TIME SERVER*/
@@ -477,10 +478,10 @@ void updateStrings(void)
 
   if (language == 0)
   {
-    strcpy(moldInvId, "962");
-    strcpy(productArticle, "ДВ-1,0/131");
-    strcpy(machineNumber, "1.12");
-//    strcpy(machineName, "Arburg720H-2900-1300");
+    strcpy(moldInvId, "746");
+    strcpy(productArticle, "ДВ-1,0/131  2.1,2.2");
+    strcpy(machineNumber, "2.8");
+    strcpy(machineName, "Arburg630H-2300-800");
     if (machineStatus == MOLD_OPENED) {
       strcpy(machineStatusText, "Форма Разомкнута");
     }
@@ -488,7 +489,7 @@ void updateStrings(void)
       strcpy(machineStatusText, "Форма Сомкнута");
     }
     if (machineStatus == 2) {
-      strcpy(machineStatusText, "Прво остановлено");
+      strcpy(machineStatusText, "Прозводство остановлено");
     }
     strcpy(textCycle, "Цикл:");
     strcpy(textSec, "сек.");
@@ -501,7 +502,7 @@ void updateStrings(void)
   {
     strcpy(moldInvId, "962");
     strcpy(productArticle, "PAIL-1,0/131mm");
-    strcpy(machineNumber, "1.12");
+    strcpy(machineNumber, "2.5");
 //    strcpy(machineName, "ARBURG720H-2900-1300");
     if (machineStatus == MOLD_OPENED) {
       strcpy(machineStatusText, "Mold opened");
@@ -672,6 +673,7 @@ void WiFiConnect()
 		u8g2.sendBuffer();
 		#endif
     c--;
+    yield();
   }
 
   if (c > 0)
@@ -815,6 +817,7 @@ void setup(void) {
   uint8_t mc[6];
   esp_efuse_mac_get_default(mc);
   Serial.printf("\r\nBoard MAC address: %x:%x:%x:%x:%x:%x\r\n", mc[0],mc[1],mc[2],mc[3],mc[4],mc[5] );
+  rtc_clk_cpu_freq_set(RTC_CPU_FREQ_80M);
 
 #ifdef BLE_ENABLE
 esp_log_level_set(GATTC_TAG, ESP_LOG_VERBOSE);
@@ -886,7 +889,6 @@ esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
   /*SD CARD****************************************/
 //  uint8_t Sd2Card::init(uint8_t sckRateID,
 // uint8_t chipSelectPin, int8_t mosiPin, int8_t misoPin, int8_t clockPin) {
-//    rtc_clk_cpu_freq_set(RTC_CPU_FREQ_80M);
 /*
     SPI.begin(13,21,17,12);
     while (!SD.begin(13, SPI, 24000000, "/sd"))
@@ -1079,7 +1081,7 @@ LoRa.setPins(LORA_CS, LORA_RST, LORA_DI0);
 	{
   	getTime();
 	}
-  btStop();
+//  btStop();
 	#endif
 
   float vdd = rom_phy_get_vdd33() / 1000.0;
@@ -1147,7 +1149,7 @@ int messagesCnt=0;
 void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long mouldOpenedTime)
 {
 	BlinkBlueLED();
-  unsigned long epoch = (millis() * 3 / 1000) + unixStartTime;
+  unsigned long epoch = (millis() / 1000) + unixStartTime;
   cycleTime *= 3;
   String et=String(eventType);
   String msg;
@@ -1156,7 +1158,7 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
                  String(cycleTime) + String(";") +
                  String(counterValue) +String(";")+
                  String(eventType)+String(";")+
-                 String(mouldOpenedTime*3)+String(";")+
+                 String(mouldOpenedTime)+String(";")+
                  String(machineId)+String(";")+
                  String(mouldId)+String(";."));
   //Serial.println(msg);
@@ -1184,7 +1186,7 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
 
     messagesCnt=0;
     Serial.print("Send tooked:");
-    Serial.println((millis()-m)*3);
+    Serial.println((millis()-m));
 
     LoRa.end();
 		#endif
@@ -1411,7 +1413,7 @@ void loop(void) {
 
   //buttonStatus=1 MOLD OPENED
   //buttonStatus=0 MOLD CLOSED
-  long currentCycleTime = (millis() - cycleStartMillis) * 3;
+  long currentCycleTime = (millis() - cycleStartMillis) ;
   if (buttonStatus == 0)
   {
     /*
@@ -1431,7 +1433,7 @@ void loop(void) {
     if (machineStatus== MOLD_OPENED)
     {
       moldCycleCounter++;
-      prevCycleTime=(m1 - cycleStartMillis)*3;
+      prevCycleTime=(m1 - cycleStartMillis);
       if ((moldCycleCounter & 3) == 0)
       {
         saveCounter(moldCycleCounter);
@@ -1635,8 +1637,8 @@ void loop(void) {
   u8g2.print(pcsText);
 
   //display time;
-  unsigned long epoch = (millis() * 3 / 1000) + unixStartTime;
-  epoch += 3 * 3600;
+  unsigned long epoch = (millis() / 1000) + unixStartTime;
+  epoch += 3600*3; //GMT+2
 
   byte second = epoch % 60; epoch /= 60;
   byte minute = epoch % 60; epoch /= 60;
