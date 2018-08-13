@@ -3,8 +3,9 @@
 //#define LORA32_ENABLE //7KB
 #define WIFI_ENABLE //430KB
 #define HTTPCLIENT_ENABLE //JSON+HTTP=5KB
+//#define SONAR_HC04_ENABLE
 //#define BLE_ENABLE //750kb
-//#define ROTARY_ENABLE //3kb
+#define ROTARY_ENABLE //3kb
 //#define PREFERENCES_ENABLE //8kb
 
 //#define WIFI_GATEWAY
@@ -12,11 +13,41 @@
 
 #include <Arduino.h>
 
+
+#ifdef SONAR_HC04_ENABLE
+const int TRIG_PIN = 13;
+const int ECHO_PIN = 12;
+// defines variables
+int distance;
+//#define MAX_DISTANCE 200 // Maximum distance (in cm) to ping.
+//NewPing sonar=NewPing(TRIG_PIN, ECHO_PIN, MAX_DISTANCE); // Each sensor's trigger pin, echo pin, and max distance to ping.
+#endif
+
+
+volatile uint8_t led_color = 0;          // a value from 0 to 255 representing the hue
+volatile uint8_t led_brightness2= 0;  // 255 is maximum brightness, but can be changed.  Might need 256 for common anode to fully turn off.
+volatile uint8_t led_brightness = 255;  // 255 is maximum brightness, but can be changed.  Might need 256 for common anode to fully turn off.
+volatile uint32_t R, G, B;           // the Red Green and Blue color components
+#define BLUE_LED 2
+#define GREEN_LED 5
+#define RED_LED 18
+#define BLUE 1
+#define GREEN 2
+#define RED 4
+
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+
 #ifdef ROTARY_ENABLE
+volatile int interruptCounter = 0;
+static const int rotorButtonPin = 0;	// the number of the pushbutton pin
+static const int rotorPinA = 22;	// One quadrature pin
+static const int rotorPinB = 23;	// the other quadrature pin
 #include <Button.h>
 #include <TicksPerSecond.h>
 #include <RotaryEncoderAcelleration.h>
 #endif
+
+#include <NewPing.h>
 
 #ifdef U8G2_ENABLE
 #include <U8g2lib.h>
@@ -44,14 +75,10 @@ const char* password =  "300451566";
 Preferences preferences;
 #endif
 
-static const int rotorButtonPin = 21;	// the number of the pushbutton pin
-static const int rotorPinA = 13;	// One quadrature pin
-static const int rotorPinB = 12;	// the other quadrature pin
-
 #define WIFI_CLAMP_ON
-
 #define MOLD_BUTTON_PIN 17
-#define BLUE_LED 2
+#define COUNTER_REMOVE_BUTTON_PIN 19
+
 #define LORA_CLK 5   //
 #define LORA_MOSI 27 //
 #define LORA_MISO 19 //REUSED IN SD/MISO
@@ -66,6 +93,65 @@ static const int rotorPinB = 12;	// the other quadrature pin
 #define SD_MOSI 23 //BLUE
 #define SD_CS 22 //GREEN
 
+
+// Courtesy http://www.instructables.com/id/How-to-Use-an-RGB-LED/?ALLSTEPS
+// function to convert a color to its Red, Green, and Blue components.
+void hueToRGB(uint8_t hue, uint8_t brightness)
+{
+    const boolean invert = true; // set true if common anode, false if common cathode
+    uint16_t scaledHue = (hue * 6);
+    uint8_t segment = scaledHue / 256; // segment 0 to 5 around the
+                                            // color wheel
+    uint16_t segmentOffset =
+      scaledHue - (segment * 256); // position within the segment
+
+    uint8_t complement = 0;
+    uint16_t prev = (brightness * ( 255 -  segmentOffset)) / 256;
+    uint16_t next = (brightness *  segmentOffset) / 256;
+
+    if(invert)
+    {
+      brightness = 255 - brightness;
+      complement = 255;
+      prev = 255 - prev;
+      next = 255 - next;
+    }
+
+    switch(segment ) {
+    case 0:      // red
+        R = brightness;
+        G = next;
+        B = complement;
+    break;
+    case 1:     // yellow
+        R = prev;
+        G = brightness;
+        B = complement;
+    break;
+    case 2:     // green
+        R = complement;
+        G = brightness;
+        B = next;
+    break;
+    case 3:    // cyan
+        R = complement;
+        G = prev;
+        B = brightness;
+    break;
+    case 4:    // blue
+        R = next;
+        G = complement;
+        B = brightness;
+    break;
+   case 5:      // magenta
+    default:
+        R = brightness;
+        G = complement;
+        B = prev;
+    break;
+    }
+}
+
 #ifdef BLE_ENABLE
 #define GATTC_TAG "GATTC_DEMO"
 #define PROFILE_A_APP_ID 0
@@ -79,7 +165,6 @@ static const int rotorPinB = 12;	// the other quadrature pin
 #include <esp_gattc_api.h>     // ESP32 BLE
 //#include <esp_gatt_common_api.h>// ESP32 BLE
 #endif
-
 
 #ifdef BLE_ENABLE
 #define REMOTE_SERVICE_UUID        0x00FF
@@ -433,7 +518,22 @@ void BlinkBlueLED(unsigned int val=-1)
 	{
 		ledB=val;
 	}
-  digitalWrite(BLUE_LED,ledB);
+//  if (ledB==HIGH)
+  {
+    hueToRGB(led_color, (uint8_t)(led_brightness*16)+led_brightness2);  // call function to convert hue to RGB
+    ledcWrite(1, R);
+    ledcWrite(2, G);
+    ledcWrite(3, B);
+//    led_brightness+=8;led_brightness&=127;
+//    if ((led_color&1)!=0)   ledcWrite(3, R); else ledcWrite(3, 0);
+//    if ((led_color&2)!=0)   ledcWrite(2, G); else ledcWrite(2, 0);
+//    if ((led_color&4)!=0)   ledcWrite(1, B); else ledcWrite(1, 0);
+  }
+//  else {
+//    ledcWrite(1, 0);
+//    ledcWrite(2, 0);
+//    ledcWrite(3, 0);
+//  }
 }
 
 #ifdef WIFI_ENABLE
@@ -466,7 +566,10 @@ IRAM_ATTR void UpdateRotorButton()
 //Rotary Encoder
 IRAM_ATTR void UpdateRotor() {
 	noInterrupts();
+  portENTER_CRITICAL_ISR(&mux);
 	rotor.update();
+  interruptCounter++;
+  portEXIT_CRITICAL_ISR(&mux);
 	interrupts();
 }
 #endif
@@ -813,6 +916,19 @@ void testFileIO(fs::FS &fs, const char * path){
 
 void setup(void) {
   Serial.begin(115200);
+  pinMode(BLUE_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+  ledcSetup(1, 12000, 8);
+  ledcSetup(2, 12000, 8);
+  ledcSetup(3, 12000, 8);
+  ledcAttachPin(RED_LED, 1);
+  ledcAttachPin(GREEN_LED, 2);
+  ledcAttachPin(BLUE_LED, 3);
+//  digitalWrite(BLUE_LED,LOW);
+//  digitalWrite(GREEN_LED,LOW);
+//  digitalWrite(RED_LED,LOW);
+  ledB=LOW;
 
   uint8_t mc[6];
   esp_efuse_mac_get_default(mc);
@@ -923,6 +1039,8 @@ Serial.print("Devices found: ");
 Serial.println(foundDevices.getCount());
 Serial.println("Scan done!");
 */
+//pinMode(BLUE_LED, OUTPUT);
+//digitalWrite(BLUE_LED,HIGH);
 
 
 #ifdef SD_ENABLE
@@ -937,9 +1055,6 @@ spi.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
 //  while (!card.init(SPI_HALF_SPEED, 18, 27, 19, 5))
 
 int c=3;
-pinMode(BLUE_LED, OUTPUT);
-digitalWrite(BLUE_LED,HIGH);
-ledB=HIGH;
 
 while (!SD.begin(SD_CS,spi,18000000,"/sd"))
 //while (!SD.begin(17))
@@ -1042,8 +1157,11 @@ SPI.end();
 #ifdef ROTARY_ENABLE
 btn.initialize(rotorButtonPin);
 rotor.initialize(rotorPinA, rotorPinB);
-rotor.setMinMax(100, 999);
-rotor.setPosition(500);
+//pinMode(rotorPinA, INPUT);
+//pinMode(rotorPinB, INPUT);
+
+rotor.setMinMax(0, 255);
+rotor.setPosition(5);
 attachInterrupt(digitalPinToInterrupt(rotorPinA), UpdateRotor, CHANGE);
 attachInterrupt(digitalPinToInterrupt(rotorPinB), UpdateRotor, CHANGE);
 #endif
@@ -1052,7 +1170,10 @@ attachInterrupt(digitalPinToInterrupt(rotorPinB), UpdateRotor, CHANGE);
 SPI.begin(LORA_CLK, LORA_MISO, LORA_MOSI, LORA_CS);
 LoRa.setPins(LORA_CS, LORA_RST, LORA_DI0);
 #endif
-
+#ifndef LORA32_ENABLE
+pinMode(LORA_RST, OUTPUT);
+digitalWrite(LORA_RST,LOW);
+#endif
   pinMode(MOLD_BUTTON_PIN, INPUT_PULLUP);
   /*
     pinMode(16, OUTPUT);
@@ -1240,23 +1361,60 @@ int prevDisplayButtonStatus=1;
 int isDisplayOn=1;
 int prevCycleTime;
 
-void loop(void) {
+void loop() {
+    BlinkBlueLED();
+    #ifdef SONAR_HC04_ENABLE
+    long duration;
+    float cm;
+    pinMode(TRIG_PIN, OUTPUT);
+    // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
+    // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
+    digitalWrite(TRIG_PIN, LOW);
+    pinMode(ECHO_PIN, INPUT);
+    delayMicroseconds(100);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+    // Read the signal from the sensor: a HIGH pulse whose
+    // duration is the time (in microseconds) from the sending
+    // of the ping to the reception of its echo off of an object.
+    duration = pulseIn(ECHO_PIN, HIGH);
+    // convert the time into a distance
+    cm =duration*0.034/2;
+    Serial.print(duration);
+    Serial.print("....");
+    Serial.println(cm);
+    #endif
+
 	//rotor.update();
   #ifdef ROTARY_ENABLE
-  long pos = rotor.getPosition();
+//  UpdateRotor();
 	btn.update();
   if (btn.isPressed()) {
-		Serial.println("Rotary Button Pressed!");
+    led_brightness++;led_brightness&=15;BlinkBlueLED();
+		Serial.print("Rotary Button Pressed.");
+    Serial.print("led_brightness=");
+    Serial.println((led_brightness*16)+15);
   }
+  led_brightness2++;led_brightness2&=15;
+  if(interruptCounter>0){
+      portENTER_CRITICAL(&mux);
+      interruptCounter--;
+      long pos = rotor.getPosition();
+      portEXIT_CRITICAL(&mux);
+      if (lastRotor != pos) {
+        float tps = rotor.tps.getTPS();
+        Serial.print("Rotor: ");
+        Serial.print(pos);
+        Serial.print(" ");
+        Serial.println(tps);
+        led_color=(uint8_t)pos;
+      }
+      lastRotor = pos;
 
-  if (lastRotor != pos) {
-    float tps = rotor.tps.getTPS();
-    Serial.print("Rotor: ");
-    Serial.print(pos);
-    Serial.print(" ");
-    Serial.println(tps);
+//      numberOfInterrupts++;
+//      Serial.print("An interrupt has occurred. Total: ");
   }
-  lastRotor = pos;
   #endif
 
     displayStatus = 1;
