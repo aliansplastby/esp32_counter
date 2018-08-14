@@ -2,7 +2,8 @@
 //#define SD_ENABLE //40KB
 //#define LORA32_ENABLE //7KB
 #define WIFI_ENABLE //430KB
-#define HTTPCLIENT_ENABLE //JSON+HTTP=5KB
+#define MODBUS_ENABLE
+//#define HTTPCLIENT_ENABLE //JSON+HTTP=5KB
 //#define SONAR_HC04_ENABLE
 //#define BLE_ENABLE //750kb
 #define ROTARY_ENABLE //3kb
@@ -40,7 +41,7 @@ portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 #ifdef ROTARY_ENABLE
 volatile int interruptCounter = 0;
 static const int rotorButtonPin = 0;	// the number of the pushbutton pin
-static const int rotorPinA = 22;	// One quadrature pin
+static const int rotorPinA = 27;	// One quadrature pin
 static const int rotorPinB = 23;	// the other quadrature pin
 #include <Button.h>
 #include <TicksPerSecond.h>
@@ -62,6 +63,12 @@ static const int rotorPinB = 23;	// the other quadrature pin
 const char* ssid = "ALIANSPLAST";
 const char* password =  "300451566";
 #include <WiFi.h>
+
+#ifdef MODBUS_ENABLE
+#include <ModbusIP_ESP8266.h>
+//ModbusIP object
+ModbusIP mb;
+#endif
 #endif
 
 #ifdef HTTPCLIENT_ENABLE
@@ -98,7 +105,7 @@ Preferences preferences;
 // function to convert a color to its Red, Green, and Blue components.
 void hueToRGB(uint8_t hue, uint8_t brightness)
 {
-    const boolean invert = true; // set true if common anode, false if common cathode
+    const boolean invert = false; // set true if common anode, false if common cathode
     uint16_t scaledHue = (hue * 6);
     uint8_t segment = scaledHue / 256; // segment 0 to 5 around the
                                             // color wheel
@@ -413,9 +420,9 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
 
 #ifndef WIFI_GATEWAY
 //sendin
-IPAddress ip(0,0,0,0);
-IPAddress subnet(0,0,0,0);
-IPAddress gateway(0,0,0,0);
+IPAddress ip(192,168,1,211);
+IPAddress subnet(255,255,255,0);
+IPAddress gateway(192,168,1,1);
 
 unsigned int counterId=1;
 unsigned int machineId=128;
@@ -431,7 +438,7 @@ unsigned int mouldId=64;
 #include <SPI.h>
 #endif
 #ifdef U8X8_HAVE_HW_I2C
-#include <Wire.h>
+//#include <Wire.h>
 #endif
 #endif
 
@@ -465,7 +472,10 @@ long lastRotor = 0;
 
 //U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 4, /* reset=*/ 16);
 #ifdef U8G2_ENABLE
+//U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 4, /* reset=*/ 16);
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ 16, /* clock=*/ 15, /* data=*/ 4);   // ESP32 Thing, HW I2C with pin remapping
+//U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ 16, /* clock=*/ 15, /* data=*/ 4); //128 bytes buffer
+//U8G2_SSD1306_128X64_NONAME_2_HW_I2C u8g2(U8G2_R0, /* reset=*/ 16, /* clock=*/ 15, /* data=*/ 4);//256 bytes buffer
 #endif
 
 
@@ -730,22 +740,21 @@ void WiFiConnect()
 
   if (ip!=0)
   {
-    Serial.println("WiFi set config!");
-    WiFi.config(ip, gateway, subnet);
+    //Serial.println("WiFi set config!");
+    //WiFi.config(ip, gateway, subnet);
   }
 
-  int c = 10;
+  int c = 15;
   Serial.println("Connecting to WiFi");
   WiFi.begin(ssid, password);
 	#ifdef U8G2_ENABLE
 	u8g2.clearBuffer();
 	#endif
-
 	strcpy(msg, "Connecting to WiFi ");
   while (WiFi.status() != WL_CONNECTED && c > 0) {
 		strcpy(&msg[strlen(msg)], ".");
     Serial.print(".");
-    delay(300);
+    delay(500);
 		BlinkBlueLED();
 		#ifdef U8G2_ENABLE
 //		u8g2.clearBuffer();
@@ -755,31 +764,43 @@ void WiFiConnect()
 		u8g2.print(msg);
 		u8g2.sendBuffer();
 		#endif
-
-    c--;
-  }
-	WiFiOff();
-	delay(100);
-	WiFi.begin(ssid, password);
-	c=10;
-	while (WiFi.status() != WL_CONNECTED && c > 0) {
-		strcpy(&msg[strlen(msg)], ".");
-    Serial.print(".");
-    delay(250);
-		BlinkBlueLED();
-//		u8g2.clearBuffer();
-		#ifdef U8G2_ENABLE
-		u8g2.setCursor(1, 10);
-		u8g2.setDrawColor(1);
-		u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
-		u8g2.print(msg);
-		u8g2.sendBuffer();
-		#endif
-    c--;
     yield();
+    c--;
+  }
+  delay(250);
+  yield();
+  if (c==0)
+  {
+     Serial.println("WiFi disconnect and try again!");
+	   WiFiOff();
+	    delay(300);
+      if (ip!=0)
+      {
+        //Serial.println("WiFi set config!");
+        //WiFi.config(ip, gateway, subnet);
+      }
+      WiFi.begin(ssid, password);
+    	c=15;
+    	while (WiFi.status() != WL_CONNECTED && c > 0) {
+    		strcpy(&msg[strlen(msg)], ".");
+        Serial.print(".");
+        delay(500);
+    		BlinkBlueLED();
+    //		u8g2.clearBuffer();
+    		#ifdef U8G2_ENABLE
+    		u8g2.setCursor(1, 10);
+    		u8g2.setDrawColor(1);
+    		u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+    		u8g2.print(msg);
+    		u8g2.sendBuffer();
+    		#endif
+        c--;
+        yield();
+      }
   }
 
-  if (c > 0)
+
+  if (WiFi.status() == WL_CONNECTED )
   {
     Serial.println(".");
     Serial.print("Connected to the WiFi network:");
@@ -787,7 +808,10 @@ void WiFiConnect()
 
 		strcpy(msg, "Connected to:");
 		strcpy(&msg[strlen(msg)], ssid);
-		#ifdef U8G2_ENABLE
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+
+  	#ifdef U8G2_ENABLE
 		u8g2.setCursor(1, 10+8);
 		u8g2.print(msg);
 		u8g2.sendBuffer();
@@ -812,6 +836,7 @@ void WiFiConnect()
   }
 	else
 	{
+    Serial.println("FAILED TO CONNECT TO WIFI!!");
 		strcpy(msg, "Failed to connect to:");
 		strcpy(&msg[strlen(msg)], ssid);
 		#ifdef U8G2_ENABLE
@@ -862,7 +887,6 @@ void WiFiConnect()
   Serial.println(online);
   #endif
   //*****************************
-
 	#endif
 }
 
@@ -925,6 +949,9 @@ void setup(void) {
   ledcAttachPin(RED_LED, 1);
   ledcAttachPin(GREEN_LED, 2);
   ledcAttachPin(BLUE_LED, 3);
+
+  pinMode(SCL,INPUT_PULLUP);
+  pinMode(SDA,INPUT_PULLUP);
 //  digitalWrite(BLUE_LED,LOW);
 //  digitalWrite(GREEN_LED,LOW);
 //  digitalWrite(RED_LED,LOW);
@@ -1198,10 +1225,35 @@ digitalWrite(LORA_RST,LOW);
   moldCycleCounter = readCounter();
 	#ifdef WIFI_ENABLE
   WiFiConnect();
+  Serial.println(WiFi.status());
 	if (WiFi.status() == WL_CONNECTED)
 	{
   	getTime();
 	}
+  mb.begin();
+  mb.addIsts(100);
+  mb.addHreg(100,moldCycleCounter);
+  mb.addHreg(102,0);
+  mb.addHreg(103,0);
+
+  mb.addHreg(110,0);
+  mb.addHreg(111,0);
+  mb.addHreg(112,0);
+  mb.addHreg(113,0);
+  mb.addHreg(114,0);
+  mb.addHreg(115,0);
+  mb.addHreg(116,0);
+  mb.addHreg(117,0);
+  mb.addHreg(118,0);
+  mb.addHreg(119,0);
+  mb.addHreg(120,0);
+  mb.addHreg(121,0);
+  mb.addHreg(122,0);
+  mb.addHreg(123,0);
+  mb.addHreg(124,0);
+  mb.addHreg(125,0);
+
+
 //  btStop();
 	#endif
 
@@ -1215,9 +1267,9 @@ digitalWrite(LORA_RST,LOW);
     while (1);
   }
 	#endif
-  #ifndef LORA_GATEWAY
-    WiFiOff();
-  #endif
+//  #ifndef LORA_GATEWAY
+//    WiFiOff();
+//  #endif
 
   switchLanguage();
 
@@ -1283,7 +1335,10 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
                  String(machineId)+String(";")+
                  String(mouldId)+String(";."));
   //Serial.println(msg);
-  messages[messagesCnt]=new String(msg);
+  /**PROBLEM HERE*/
+  String smsg=String(msg);
+//  String* sm=&smsg;
+//  messages[messagesCnt]=sm;
   messagesCnt++;
   if (messagesCnt==5 || et=="PAUSE_PRODUCTION_START" || et=="PAUSE_PRODUCTION_END")
   {
@@ -1361,8 +1416,60 @@ int prevDisplayButtonStatus=1;
 int isDisplayOn=1;
 int prevCycleTime;
 
+
+void modbusHregSetStringChar16(uint32_t hregNum,wchar_t* str,uint8_t maxlen)
+{
+  wchar_t *p=str;
+  uint32_t i=hregNum;
+  uint8_t cnt=0;
+  while (p[0]!=0)
+  {
+    mb.Hreg(i,p[0]);
+    cnt++;
+    i++;
+    if (cnt>=maxlen) break;
+    if (p[0]==0) break;
+    p++;
+  }
+}
+
+void modbusHregSetStringChar8(uint32_t hregNum,char* str,uint8_t maxlen)
+{
+  unsigned char *p=(unsigned char*)str;
+  uint32_t i=hregNum;
+  uint8_t cnt=0;
+  while (p[0]!=0)
+  {
+    mb.Hreg(i, p[1]+(p[0]<<8));
+    cnt+=2;
+    if (cnt>=maxlen) break;
+    if (p[0]==0) break;
+    i++;
+    p++;p++;
+  }
+}
+
+void modbusHregSetFloat(uint32_t hregNum,float fnum)
+{
+  union
+  {   uint16_t b[2] ;
+      float f ;
+  } temp;
+  temp.f=(float)(fnum);
+  mb.Hreg(hregNum, temp.b[0]);
+  mb.Hreg(hregNum+1, temp.b[1]);
+}
+
 void loop() {
+//    Serial.println(WiFi.status());
     BlinkBlueLED();
+    mb.task();
+    mb.Ists(100, digitalRead(MOLD_BUTTON_PIN));
+    mb.Hreg(100, moldCycleCounter);
+    modbusHregSetFloat(102,(float)prevCycleTime/1000.0);
+//    modbusHregSetStringChar16(110,L"АЛЬЯНС",30);
+    modbusHregSetStringChar8(110,"АЛЬЯНС",30);
+
     #ifdef SONAR_HC04_ENABLE
     long duration;
     float cm;
@@ -1391,12 +1498,14 @@ void loop() {
 //  UpdateRotor();
 	btn.update();
   if (btn.isPressed()) {
-    led_brightness++;led_brightness&=15;BlinkBlueLED();
+    led_brightness++;
+    led_brightness&=15;
+    BlinkBlueLED();
 		Serial.print("Rotary Button Pressed.");
     Serial.print("led_brightness=");
     Serial.println((led_brightness*16)+15);
   }
-  led_brightness2++;led_brightness2&=15;
+  led_brightness2++;//led_brightness2&=15;
   if(interruptCounter>0){
       portENTER_CRITICAL(&mux);
       interruptCounter--;
@@ -1819,7 +1928,7 @@ void loop() {
   }
   year  = years + year;
   month = month + 1;
-  unsigned int day   = epoch - days[year][month] + 1;
+//  unsigned int day   = epoch - days[year][month] + 1;
 
   u8g2.setCursor(88, 63);
   //  u8g2.print("");
@@ -1947,6 +2056,7 @@ unsigned long sendNTPpacket(IPAddress& address)
   udp.beginPacket(address, 123); //NTP requests are to port 123
   udp.write(packetBuffer, NTP_PACKET_SIZE);
   udp.endPacket();
+  return 0;
 }
 #endif
 #else
