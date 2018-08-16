@@ -3,7 +3,6 @@
     Copyright (C) 2014 Andr� Sarmento Barbosa
                   2017-2018 Alexander Emelianov (a.m.emelianov@gmail.com)
 */
-#pragma once
 #include <vector>
 #include <algorithm>
 
@@ -24,10 +23,10 @@ using namespace std;
 #define ISTS_VAL(v) (v?0xFF00:0x0000)
 #define ISTS_BOOL(v) (v==0xFF00)
 
-typedef struct TRegister;
+struct TRegister;
 
 typedef uint16_t (*cbModbus)(TRegister* reg, uint16_t val); // Callback function Type
-typedef struct TAddress {
+struct TAddress {
     enum RegType {COIL, ISTS, IREG, HREG};
     RegType type;
     uint16_t address;
@@ -54,7 +53,7 @@ typedef struct TAddress {
    }
 };
 
-typedef struct TRegister {
+struct TRegister {
     TAddress    address;
     uint16_t value;
     cbModbus get;
@@ -109,9 +108,54 @@ class Modbus {
         bool Hreg(uint16_t offset, uint16_t value) {
             return Reg(HREG(offset), value);
         }
+
+        bool Hreg(uint16_t offset, uint32_t value) {
+          union
+          {   uint16_t b[2] ;
+              uint32_t f;
+          } temp;
+          temp.f=(uint32_t)(value);
+          Hreg(offset+0, temp.b[0]);
+          return Hreg(offset+1, temp.b[1]);
+        }
+        bool Hreg(uint16_t offset, uint64_t value) {
+          union
+          {   uint16_t b[4] ;
+              uint64_t f;
+          } temp;
+          temp.f=(uint64_t)(value);
+          Hreg(offset+0, temp.b[0]);
+          Hreg(offset+1, temp.b[1]);
+          Hreg(offset+2, temp.b[2]);
+          return Hreg(offset+3, temp.b[3]);
+        }
+        bool Hreg(uint16_t offset,float fnum)
+        {
+          union
+          {   uint16_t b[2] ;
+              float f ;
+          } temp;
+          temp.f=(float)(fnum);
+          Hreg(offset, temp.b[0]);
+          return Hreg(offset+1, temp.b[1]);
+        }
+        bool Hreg(uint16_t offset,double value)
+        {
+          union
+          {   uint16_t b[4] ;
+              double f ;
+          } temp;
+          temp.f=(double)(value);
+          Hreg(offset+0, temp.b[0]);
+          Hreg(offset+1, temp.b[1]);
+          Hreg(offset+2, temp.b[2]);
+          return Hreg(offset+3, temp.b[3]);
+        }
+
         uint16_t Hreg(uint16_t offset) {
             return Reg(HREG(offset));
         }
+
         uint16_t removeHreg(uint16_t offset) {
             return removeReg(HREG(offset));
         }

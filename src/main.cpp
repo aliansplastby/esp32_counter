@@ -1417,47 +1417,38 @@ int isDisplayOn=1;
 int prevCycleTime;
 
 
-void modbusHregSetStringChar16(uint32_t hregNum,wchar_t* str,uint8_t maxlen)
+void modbusHregSetStringChar16(uint16_t hregNum,wchar_t* str,uint8_t maxlen)
 {
   wchar_t *p=str;
-  uint32_t i=hregNum;
+  uint16_t i=hregNum;
   uint8_t cnt=0;
-  while (p[0]!=0)
+  while (1)
   {
-    mb.Hreg(i,p[0]);
+    mb.Hreg(i,(uint16_t)p[0]);
+    if (p[0]==0) break;
     cnt++;
     i++;
-    if (cnt>=maxlen) break;
-    if (p[0]==0) break;
     p++;
+    if (cnt==maxlen) break;
   }
 }
 
-void modbusHregSetStringChar8(uint32_t hregNum,char* str,uint8_t maxlen)
+void modbusHregSetStringChar8(uint16_t hregNum,char* str,uint8_t maxlen)
 {
   unsigned char *p=(unsigned char*)str;
-  uint32_t i=hregNum;
+  uint16_t i=hregNum;
   uint8_t cnt=0;
   while (p[0]!=0)
   {
-    mb.Hreg(i, p[1]+(p[0]<<8));
+    mb.Hreg(i, uint16_t(p[1]|(p[0]<<8)));
+    if (p[0]==0) break;
+    p++;
+    if (p[0]==0) break;
+    p++;
     cnt+=2;
     if (cnt>=maxlen) break;
-    if (p[0]==0) break;
     i++;
-    p++;p++;
   }
-}
-
-void modbusHregSetFloat(uint32_t hregNum,float fnum)
-{
-  union
-  {   uint16_t b[2] ;
-      float f ;
-  } temp;
-  temp.f=(float)(fnum);
-  mb.Hreg(hregNum, temp.b[0]);
-  mb.Hreg(hregNum+1, temp.b[1]);
 }
 
 void loop() {
@@ -1465,8 +1456,8 @@ void loop() {
     BlinkBlueLED();
     mb.task();
     mb.Ists(100, digitalRead(MOLD_BUTTON_PIN));
-    mb.Hreg(100, moldCycleCounter);
-    modbusHregSetFloat(102,(float)prevCycleTime/1000.0);
+    mb.Hreg(100, (uint16_t)moldCycleCounter);
+    mb.Hreg(102,(float)((float)(prevCycleTime)/1000.0));
 //    modbusHregSetStringChar16(110,L"АЛЬЯНС",30);
     modbusHregSetStringChar8(110,"АЛЬЯНС",30);
 

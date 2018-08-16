@@ -28,10 +28,9 @@ using namespace std;
 typedef bool (*cbModbusConnect)(IPAddress ip);
 
 typedef struct TTransaction TTransaction;
-
 typedef bool (*cbTransaction)(Modbus::ResultCode event, TTransaction* t);
 
-typedef struct TTransaction {
+struct TTransaction {
 	uint16_t	transactionId;
 	uint32_t	timestamp;
 	cbTransaction cb = nullptr;
@@ -44,7 +43,7 @@ typedef struct TTransaction {
 
 class ModbusIP : public Modbus {
 	protected:
-	typedef union MBAP_t {
+	  union MBAP_t {
 		struct {
 			uint16_t transactionId;
 			uint16_t protocolId;
@@ -74,7 +73,7 @@ class ModbusIP : public Modbus {
 	bool isTransaction(uint16_t id);
 	bool isConnected(IPAddress ip);
 	bool connect(IPAddress ip);
-	bool disconnect(IPAddress addr) {}  // Not implemented yet
+	bool disconnect(IPAddress addr) {return true;}  // Not implemented yet
 	void slave();
 	void master();
 	void task();
