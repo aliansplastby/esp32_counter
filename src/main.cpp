@@ -15,6 +15,11 @@
 #include <Arduino.h>
 
 
+#include <DHT12.h>
+DHT12 DHT;
+int humidity;
+int temperature;
+
 #ifdef SONAR_HC04_ENABLE
 const int TRIG_PIN = 13;
 const int ECHO_PIN = 12;
@@ -24,14 +29,40 @@ int distance;
 //NewPing sonar=NewPing(TRIG_PIN, ECHO_PIN, MAX_DISTANCE); // Each sensor's trigger pin, echo pin, and max distance to ping.
 #endif
 
+#include <SmartLeds.h>
+const int LED_COUNT = 1;
+const int LED_DATA_PIN = 2;//2;
+const int CHANNEL = 0;
+// SmartLed -> RMT driver (WS2812/WS2812B/SK6812/WS2813)
+SmartLed leds( LED_WS2812B, LED_COUNT, LED_DATA_PIN, CHANNEL, DoubleBuffer );
+//SmartLed leds1( LED_WS2812B, LED_COUNT, 2, CHANNEL, DoubleBuffer );
+uint8_t hue;
+uint8_t v;
+void showGradient() {
+    hue++;
+    v++;
+    // Use HSV to create nice gradient
+    for ( int i = 0; i != LED_COUNT; i++ )
+        leds[ i ] = Hsv{ static_cast< uint8_t >( hue), 255, 255 };
+    //leds.show();
+    // Show is asynchronous; if we need to wait for the end of transmission,
+    // we can use leds.wait(); however we use double buffered mode, so we
+    // can start drawing right after showing.
+}
+
+void showRgb() {
+    leds[ 0 ] = Rgb{ 255, 0, 0 };
+    leds.show();
+}
+
 
 volatile uint8_t led_color = 0;          // a value from 0 to 255 representing the hue
 volatile uint8_t led_brightness2= 0;  // 255 is maximum brightness, but can be changed.  Might need 256 for common anode to fully turn off.
 volatile uint8_t led_brightness = 255;  // 255 is maximum brightness, but can be changed.  Might need 256 for common anode to fully turn off.
 volatile uint32_t R, G, B;           // the Red Green and Blue color components
-#define BLUE_LED 2
-#define GREEN_LED 5
-#define RED_LED 18
+#define BLUE_LED 25
+//#define GREEN_LED 5
+//#define RED_LED 18
 #define BLUE 1
 #define GREEN 2
 #define RED 4
@@ -474,6 +505,7 @@ long lastRotor = 0;
 #ifdef U8G2_ENABLE
 //U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ 15, /* data=*/ 4, /* reset=*/ 16);
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ 16, /* clock=*/ 15, /* data=*/ 4);   // ESP32 Thing, HW I2C with pin remapping
+
 //U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ 16, /* clock=*/ 15, /* data=*/ 4); //128 bytes buffer
 //U8G2_SSD1306_128X64_NONAME_2_HW_I2C u8g2(U8G2_R0, /* reset=*/ 16, /* clock=*/ 15, /* data=*/ 4);//256 bytes buffer
 #endif
@@ -518,27 +550,56 @@ WiFiUDP udp;
 #endif
 
 unsigned long ledB=LOW;
+
+void BlinkRedLED(unsigned int val=-1)
+{
+  if (val==-1)
+	{
+	   ledB=(ledB==LOW?HIGH:LOW);
+     leds[ 0 ] = Rgb{ ledB*255,0, 0 };
+     leds.show();
+     leds.wait();
+	}
+}
+void BlinkGreenLED(unsigned int val=-1)
+{
+  if (val==-1)
+	{
+	   ledB=(ledB==LOW?HIGH:LOW);
+     leds[ 0 ] = Rgb{ 0, ledB*255, 0 };
+     u8g2.setPowerSave(1);
+     leds.show();
+     leds.wait();
+     u8g2.setPowerSave(0);
+	}
+}
 void BlinkBlueLED(unsigned int val=-1)
 {
 	if (val==-1)
 	{
-	ledB=(ledB==LOW?HIGH:LOW);
+	   ledB=(ledB==LOW?HIGH:LOW);
+     leds[ 0 ] = Rgb{ 0, 0, ledB*255 };
+//     Wire.endTransmission();
+     u8g2.setPowerSave(1);
+     leds.show();
+     leds.wait();
+     u8g2.setPowerSave(0);
 	}
 	else
 	{
 		ledB=val;
 	}
 //  if (ledB==HIGH)
-  {
-    hueToRGB(led_color, (uint8_t)(led_brightness*16)+led_brightness2);  // call function to convert hue to RGB
-    ledcWrite(1, R);
-    ledcWrite(2, G);
-    ledcWrite(3, B);
+//  {
+//    hueToRGB(led_color, (uint8_t)(led_brightness*16)+led_brightness2);  // call function to convert hue to RGB
+//    ledcWrite(1, R);
+//    ledcWrite(2, G);
+//    ledcWrite(3, B);
 //    led_brightness+=8;led_brightness&=127;
 //    if ((led_color&1)!=0)   ledcWrite(3, R); else ledcWrite(3, 0);
 //    if ((led_color&2)!=0)   ledcWrite(2, G); else ledcWrite(2, 0);
 //    if ((led_color&4)!=0)   ledcWrite(1, B); else ledcWrite(1, 0);
-  }
+//  }
 //  else {
 //    ledcWrite(1, 0);
 //    ledcWrite(2, 0);
@@ -938,17 +999,55 @@ void testFileIO(fs::FS &fs, const char * path){
 }
 #endif
 
+void readDHT12()
+{
+  // READ DATA
+Serial.print("DHT12, \t");
+int status = DHT.read();
+switch (status)
+{
+case DHT12_OK:
+  Serial.print("OK,\t");
+  break;
+case DHT12_ERROR_CHECKSUM:
+  Serial.print("Checksum error,\t");
+  break;
+case DHT12_ERROR_CONNECT:
+  Serial.print("Connect error,\t");
+  break;
+case DHT12_MISSING_BYTES:
+  Serial.print("Missing bytes,\t");
+  break;
+default:
+  Serial.print("Unknown error,\t");
+  break;
+}
+// DISPLAY DATA, sensor has only one decimal.
+Serial.print("T:");
+Serial.print(DHT.temperature, 1);
+Serial.print(",\t H:");
+Serial.print(DHT.humidity, 1);
+Serial.println("\%");
+if (status==DHT12_OK)
+{
+    temperature=DHT.temperature;
+    humidity=DHT.humidity;
+}
+}
 void setup(void) {
   Serial.begin(115200);
+//Wire.begin(4,15);
+delay(100);
+
   pinMode(BLUE_LED, OUTPUT);
-  pinMode(GREEN_LED, OUTPUT);
-  pinMode(RED_LED, OUTPUT);
-  ledcSetup(1, 12000, 8);
-  ledcSetup(2, 12000, 8);
-  ledcSetup(3, 12000, 8);
-  ledcAttachPin(RED_LED, 1);
-  ledcAttachPin(GREEN_LED, 2);
-  ledcAttachPin(BLUE_LED, 3);
+//  pinMode(GREEN_LED, OUTPUT);
+//  pinMode(RED_LED, OUTPUT);
+//  ledcSetup(1, 12000, 8);
+//  ledcSetup(2, 12000, 8);
+//  ledcSetup(3, 12000, 8);
+//  ledcAttachPin(RED_LED, 1);
+//  ledcAttachPin(GREEN_LED, 2);
+//  ledcAttachPin(BLUE_LED, 3);
 
   pinMode(SCL,INPUT_PULLUP);
   pinMode(SDA,INPUT_PULLUP);
@@ -956,6 +1055,7 @@ void setup(void) {
 //  digitalWrite(GREEN_LED,LOW);
 //  digitalWrite(RED_LED,LOW);
   ledB=LOW;
+  digitalWrite(BLUE_LED,HIGH);
 
   uint8_t mc[6];
   esp_efuse_mac_get_default(mc);
@@ -1453,7 +1553,16 @@ void modbusHregSetStringChar8(uint16_t hregNum,char* str,uint8_t maxlen)
 
 void loop() {
 //    Serial.println(WiFi.status());
-    BlinkBlueLED();
+//    BlinkBlueLED();
+
+    if ( millis() % 10000 < 5000 )
+        showGradient();
+    else
+        showRgb();
+
+        if ( millis() % 2000<50 )
+          readDHT12();
+
     mb.task();
     mb.Ists(100, digitalRead(MOLD_BUTTON_PIN));
     mb.Hreg(100, (uint16_t)moldCycleCounter);
@@ -1518,6 +1627,7 @@ void loop() {
   #endif
 
     displayStatus = 1;
+    /*
     #ifdef LORA_GATEWAY
     {
       // try to parse packet
@@ -1623,6 +1733,10 @@ void loop() {
     return;
     }
     #endif //LORA_GATEWAY
+*/
+
+
+
   /*
     // try to parse packet
     int packetSize = LoRa.parsePacket();
@@ -1840,10 +1954,8 @@ void loop() {
 
   int sec = currentCycleTime / 1000;
   int dsec = (currentCycleTime - sec * 1000) / 10;
-
 //  u8g2.setFont(u8g2_font_timB14_tn);
 	u8g2.setFont(u8g2_font_helvB12_te);
-
   u8g2.print(sec);
   u8g2.print(".");
   u8g2.print(dsec);
@@ -1923,6 +2035,23 @@ void loop() {
 
   u8g2.setCursor(88, 63);
   //  u8g2.print("");
+  if ((millis()%10000)<3000)
+  {
+    u8g2.setCursor(88-7, 63);
+    u8g2.setFont(u8g2_font_ncenB08_tn);
+    u8g2.print(temperature);
+    u8g2.setFont(u8g2_font_7x13_t_symbols);
+    u8g2.print("℃");
+    u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+    u8g2.print("[");
+    u8g2.setFont(u8g2_font_ncenB08_tn);
+    u8g2.print(humidity);
+    u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+    u8g2.print("%");
+    u8g2.print("]");
+  }
+  else
+  {
   u8g2.print(hour);
   u8g2.print(":");
   if (minute < 10)   u8g2.print('0');
@@ -1934,8 +2063,7 @@ void loop() {
   }
   if (second < 10)   u8g2.print('0');
   u8g2.print(second);
-
-
+  }
   u8g2.sendBuffer();
 	#endif
 
@@ -1961,6 +2089,7 @@ void getTime()
 	strcpy(msg, "Getting time ");
   while ((c--) > 0)
   {
+      BlinkGreenLED();
 			strcpy(&msg[strlen(msg)], ".");
 			#ifdef U8G2_ENABLE
 			u8g2.setCursor(1, 10+8+8);
