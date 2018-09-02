@@ -84,7 +84,7 @@ Preferences preferences;
 
 #define WIFI_CLAMP_ON
 #define MOLD_BUTTON_PIN 17
-#define COUNTER_REMOVE_BUTTON_PIN 19
+#define COUNTER_REMOVE_BUTTON_PIN 0
 
 #define LORA_CLK 5   //
 #define LORA_MOSI 27 //
@@ -943,12 +943,16 @@ void setup(void) {
   pinMode(BLUE_LED, OUTPUT);
   pinMode(GREEN_LED, OUTPUT);
   pinMode(RED_LED, OUTPUT);
+
   ledcSetup(1, 12000, 8);
   ledcSetup(2, 12000, 8);
   ledcSetup(3, 12000, 8);
   ledcAttachPin(RED_LED, 1);
   ledcAttachPin(GREEN_LED, 2);
   ledcAttachPin(BLUE_LED, 3);
+
+  pinMode(COUNTER_REMOVE_BUTTON_PIN,INPUT_PULLUP);
+  pinMode(MOLD_BUTTON_PIN, INPUT_PULLUP);
 
   pinMode(SCL,INPUT_PULLUP);
   pinMode(SDA,INPUT_PULLUP);
@@ -1201,7 +1205,6 @@ LoRa.setPins(LORA_CS, LORA_RST, LORA_DI0);
 pinMode(LORA_RST, OUTPUT);
 digitalWrite(LORA_RST,LOW);
 #endif
-  pinMode(MOLD_BUTTON_PIN, INPUT_PULLUP);
   /*
     pinMode(16, OUTPUT);
     digitalWrite(16, LOW);    // set GPIO16 low to reset OLED
@@ -1734,7 +1737,7 @@ void loop() {
     */
   }
 
-  int displayButtonStatus=digitalRead(0);
+  int displayButtonStatus=1;//digitalRead(0);
   if (displayButtonStatus!=prevDisplayButtonStatus)
   {
     prevDisplayButtonStatus=displayButtonStatus;
@@ -1935,6 +1938,11 @@ void loop() {
   if (second < 10)   u8g2.print('0');
   u8g2.print(second);
 
+  int removeButtonStatus = digitalRead(COUNTER_REMOVE_BUTTON_PIN);
+  if (removeButtonStatus==0)
+  {
+    u8g2.drawDisc(128-7, 64-18, 4, U8G2_DRAW_ALL);
+  }
 
   u8g2.sendBuffer();
 	#endif
