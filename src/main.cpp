@@ -16,6 +16,10 @@
 
 
 #include <DHT12.h>
+
+char scrollingString[255];
+int scrollingPos;
+
 DHT12 DHT;
 int humidity;
 int temperature;
@@ -638,7 +642,7 @@ void updateStrings(void)
   {
     strcpy(moldInvId, "746");
     strcpy(productArticle, "ДВ-1,0/131  2.1,2.2");
-    strcpy(machineNumber, "2.8");
+    strcpy(machineNumber, "3.19");
     strcpy(machineName, "Arburg630H-2300-800");
     if (machineStatus == MOLD_OPENED) {
       strcpy(machineStatusText, "Форма Разомкнута");
@@ -1851,47 +1855,62 @@ void loop() {
 
   updateStrings();
   char machineFullName[100];
-
 	#ifdef U8G2_ENABLE
   u8g2.setFontDirection(0);
 
   u8g2.clearBuffer();
   //  if (frame&65535>32768) {u8g2.setDrawColor(0);} else {u8g2.setDrawColor(1);}
   u8g2.setDrawColor(1);
-  u8g2.drawRBox(0, 0, 25, 12, 2);
-  //  if (frame&65535>32768) {u8g2.setDrawColor(1);} else {u8g2.setDrawColor(0);}
-  u8g2.setCursor(1, 9);
-  u8g2.setDrawColor(0);
-  u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
-  u8g2.print("#");
-  u8g2.setCursor(6, 10);
-//  u8g2.setFont(u8g2_font_crox1tb_tf);
-	u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
-  u8g2.print(moldInvId);
 
+/*
   u8g2.setDrawColor(1);
   u8g2.setCursor(28, 9);
   u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
   u8g2.print(productArticle);
+*/
+  u8g2.setCursor(0, 12);
+  u8g2.setFont(u8g2_font_unifont_t_cyrillic);
+  sprintf(scrollingString, "                           %s                        ","#2092 ДВ-1.0/131 №1,2 #01[ОС],#92[РУЧ.БЕЛ] в КОМПЛ. С #23[ЗЕЛ.] крышкой,IML:#923 \"Майонез сладкий 67\%\" в Гофроящик 600х400х520 по 300 ШТ.");
+//  u8g2.print(&scrollingString[scrollingPos]);
+  char str1[64];
+  strncpy(str1,&scrollingString[scrollingPos],24);
+//  str1[17]=0;
+  u8g2.drawUTF8(0,12,str1);
+  if (millis()%100<=100) scrollingPos++;
+  if (scrollingPos>(strlen(scrollingString)-25)) scrollingPos=0;
 
   u8g2.setDrawColor(1);
   u8g2.setCursor(0, 20);
   //u8g2.setFont(u8g2_font_5x7_tf);
 	u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
-
-  //  strcpy(machineName, "ARBURG 150T");
+  //sprintf(machineFullName, "M%s", machineNumber);
   sprintf(machineFullName, "%s-%s", machineNumber, machineName);
   u8g2.print(machineFullName);
 
-  if (frame & 65535 > 50000 && machineStatus == 2) {
+  u8g2.drawRBox(128-25, 0, 25, 12, 2);
+  //  if (frame&65535>32768) {u8g2.setDrawColor(1);} else {u8g2.setDrawColor(0);}
+  u8g2.setCursor(128-24, 9);
+  u8g2.setDrawColor(0);
+  u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+  u8g2.print("#");
+  u8g2.setCursor(128-24+6, 10);
+//  u8g2.setFont(u8g2_font_crox1tb_tf);
+	u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+  u8g2.print(moldInvId);
+
+  u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
+  if (((millis()%500)<250) && machineStatus == 2) {
     u8g2.setDrawColor(0);
+    u8g2.drawRBox(0, 22, 128, 15, 4);
+    u8g2.setDrawColor(1);
+    u8g2.drawRFrame(0, 22, 128, 15, 4);
   } else {
     u8g2.setDrawColor(1);
+    u8g2.drawRBox(0, 22, 128, 15, 4);
   }
-  u8g2.drawRBox(0, 22, 128, 15, 0);
 
   u8g2.setDrawColor(0);
-  if (frame & 65535 > 50000 && machineStatus == 2) {
+  if (((millis()%500)<250) && machineStatus == 2) {
     u8g2.setDrawColor(1);
   } else {
     u8g2.setDrawColor(0);
@@ -2033,15 +2052,16 @@ void loop() {
   if (second < 10)   u8g2.print('0');
   u8g2.print(second);
 
+  }
+
   int removeButtonStatus = digitalRead(COUNTER_REMOVE_BUTTON_PIN);
   if (removeButtonStatus==0)
   {
     u8g2.drawDisc(128-7, 64-18, 4, U8G2_DRAW_ALL);
-  }
+    u8g2.drawCircle(128-7, 64-18, 6, (millis()%400)<200?U8G2_DRAW_ALL:0);
   }
   u8g2.sendBuffer();
 	#endif
-
   //  esp_deep_sleep(1000000/10);
   //delay(30);
 }
