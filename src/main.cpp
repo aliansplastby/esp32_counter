@@ -4,7 +4,7 @@
 #define WIFI_ENABLE //430KB
 #define MODBUS_ENABLE
 //#define HTTPCLIENT_ENABLE //JSON+HTTP=5KB
-//#define SONAR_HC04_ENABLE
+//#defitane SONAR_HC04_ENABLE
 //#define BLE_ENABLE //750kb
 #define ROTARY_ENABLE //3kb
 //#define PREFERENCES_ENABLE //8kb
@@ -567,10 +567,10 @@ void BlinkGreenLED(unsigned int val=-1)
 	{
 	   ledB=(ledB==LOW?HIGH:LOW);
      leds[ 0 ] = Rgb{ 0, ledB*255, 0 };
-     u8g2.setPowerSave(1);
+//     u8g2.setPowerSave(1);
      leds.show();
      leds.wait();
-     u8g2.setPowerSave(0);
+//     u8g2.setPowerSave(0);
 	}
 }
 void BlinkBlueLED(unsigned int val=-1)
@@ -580,31 +580,15 @@ void BlinkBlueLED(unsigned int val=-1)
 	   ledB=(ledB==LOW?HIGH:LOW);
      leds[ 0 ] = Rgb{ 0, 0, ledB*255 };
 //     Wire.endTransmission();
-     u8g2.setPowerSave(1);
+//     u8g2.setPowerSave(1);
      leds.show();
      leds.wait();
-     u8g2.setPowerSave(0);
+//     u8g2.setPowerSave(0);
 	}
 	else
 	{
 		ledB=val;
 	}
-//  if (ledB==HIGH)
-//  {
-//    hueToRGB(led_color, (uint8_t)(led_brightness*16)+led_brightness2);  // call function to convert hue to RGB
-//    ledcWrite(1, R);
-//    ledcWrite(2, G);
-//    ledcWrite(3, B);
-//    led_brightness+=8;led_brightness&=127;
-//    if ((led_color&1)!=0)   ledcWrite(3, R); else ledcWrite(3, 0);
-//    if ((led_color&2)!=0)   ledcWrite(2, G); else ledcWrite(2, 0);
-//    if ((led_color&4)!=0)   ledcWrite(1, B); else ledcWrite(1, 0);
-//  }
-//  else {
-//    ledcWrite(1, 0);
-//    ledcWrite(2, 0);
-//    ledcWrite(3, 0);
-//  }
 }
 
 #ifdef WIFI_ENABLE
@@ -1040,17 +1024,6 @@ void setup(void) {
 delay(100);
 
   pinMode(BLUE_LED, OUTPUT);
-<<<<<<< HEAD
-  pinMode(GREEN_LED, OUTPUT);
-  pinMode(RED_LED, OUTPUT);
-
-  ledcSetup(1, 12000, 8);
-  ledcSetup(2, 12000, 8);
-  ledcSetup(3, 12000, 8);
-  ledcAttachPin(RED_LED, 1);
-  ledcAttachPin(GREEN_LED, 2);
-  ledcAttachPin(BLUE_LED, 3);
-=======
 //  pinMode(GREEN_LED, OUTPUT);
 //  pinMode(RED_LED, OUTPUT);
 //  ledcSetup(1, 12000, 8);
@@ -1059,7 +1032,6 @@ delay(100);
 //  ledcAttachPin(RED_LED, 1);
 //  ledcAttachPin(GREEN_LED, 2);
 //  ledcAttachPin(BLUE_LED, 3);
->>>>>>> 8d619780526fe63f17ac888bc65b1db82b608125
 
   pinMode(COUNTER_REMOVE_BUTTON_PIN,INPUT_PULLUP);
   pinMode(MOLD_BUTTON_PIN, INPUT_PULLUP);
@@ -1844,25 +1816,9 @@ void loop() {
     sendClamp(0, moldCycleCounter,"PAUSE_PRODUCTION_START",0);
     //    u8g2.setPowerSave(0);
   }
-  if (machineStatus==PRODUCTION_STOPPED)
-  {
-    /*
-    displayStatus = digitalRead(0);
-    displayStatus = 0;
-    if (displayStatus==1)
-    {
-      u8g2.setPowerSave(1);
-      delay(500);
-      return;
-    }
-    else
-    {
-      u8g2.setPowerSave(0);
-    }
-    */
-  }
 
-  int displayButtonStatus=1;//digitalRead(0);
+/*
+  int displayButtonStatus=digitalRead(0);
   if (displayButtonStatus!=prevDisplayButtonStatus)
   {
     prevDisplayButtonStatus=displayButtonStatus;
@@ -1885,8 +1841,7 @@ void loop() {
 			#endif
     }
   }
-
-
+*/
   if (isDisplayOn == 0)
   {
 		//DISPLAY IS OFF
@@ -2077,17 +2032,13 @@ void loop() {
   }
   if (second < 10)   u8g2.print('0');
   u8g2.print(second);
-<<<<<<< HEAD
 
   int removeButtonStatus = digitalRead(COUNTER_REMOVE_BUTTON_PIN);
   if (removeButtonStatus==0)
   {
     u8g2.drawDisc(128-7, 64-18, 4, U8G2_DRAW_ALL);
   }
-
-=======
   }
->>>>>>> 8d619780526fe63f17ac888bc65b1db82b608125
   u8g2.sendBuffer();
 	#endif
 
