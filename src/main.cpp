@@ -16,6 +16,14 @@
 
 
 #include <DHT12.h>
+#define LED_DATA_PIN 5
+#define MOLD_BUTTON_PIN 17
+#define COUNTER_REMOVE_BUTTON_PIN 0
+#define BLUE_LED_PIN 25
+
+static const int rotorButtonPin = 0;	// the number of the pushbutton pin
+static const int rotorPinA = 22;	// One quadrature pin
+static const int rotorPinB = 2;	// the other quadrature pin
 
 char scrollingString[255];
 int scrollingPos;
@@ -35,36 +43,22 @@ int distance;
 
 #include <SmartLeds.h>
 const int LED_COUNT = 1;
-const int LED_DATA_PIN = 2;//2;
 const int CHANNEL = 0;
 // SmartLed -> RMT driver (WS2812/WS2812B/SK6812/WS2813)
 SmartLed leds( LED_WS2812B, LED_COUNT, LED_DATA_PIN, CHANNEL, DoubleBuffer );
 //SmartLed leds1( LED_WS2812B, LED_COUNT, 2, CHANNEL, DoubleBuffer );
 uint8_t hue;
 uint8_t v;
-void showGradient() {
-    hue++;
-    v++;
-    // Use HSV to create nice gradient
-    for ( int i = 0; i != LED_COUNT; i++ )
-        leds[ i ] = Hsv{ static_cast< uint8_t >( hue), 255, 255 };
-    //leds.show();
-    // Show is asynchronous; if we need to wait for the end of transmission,
-    // we can use leds.wait(); however we use double buffered mode, so we
-    // can start drawing right after showing.
-}
 
-void showRgb() {
-    leds[ 0 ] = Rgb{ 255, 0, 0 };
+void showRgb(int r=0,int g=0,int b=0) {
+    leds[ 0 ] = Rgb{ r, g, b };
     leds.show();
 }
-
 
 volatile uint8_t led_color = 0;          // a value from 0 to 255 representing the hue
 volatile uint8_t led_brightness2= 0;  // 255 is maximum brightness, but can be changed.  Might need 256 for common anode to fully turn off.
 volatile uint8_t led_brightness = 255;  // 255 is maximum brightness, but can be changed.  Might need 256 for common anode to fully turn off.
 volatile uint32_t R, G, B;           // the Red Green and Blue color components
-#define BLUE_LED 25
 //#define GREEN_LED 5
 //#define RED_LED 18
 #define BLUE 1
@@ -75,9 +69,6 @@ portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 #ifdef ROTARY_ENABLE
 volatile int interruptCounter = 0;
-static const int rotorButtonPin = 0;	// the number of the pushbutton pin
-static const int rotorPinA = 27;	// One quadrature pin
-static const int rotorPinB = 23;	// the other quadrature pin
 #include <Button.h>
 #include <TicksPerSecond.h>
 #include <RotaryEncoderAcelleration.h>
@@ -118,8 +109,6 @@ Preferences preferences;
 #endif
 
 #define WIFI_CLAMP_ON
-#define MOLD_BUTTON_PIN 17
-#define COUNTER_REMOVE_BUTTON_PIN 0
 
 #define LORA_CLK 5   //
 #define LORA_MOSI 27 //
@@ -554,45 +543,95 @@ WiFiUDP udp;
 #endif
 
 unsigned long ledB=LOW;
+unsigned long lastBlinkTimeMillis=0;
 
 void BlinkRedLED(unsigned int val=-1)
 {
   if (val==-1)
 	{
+    if (millis()-lastBlinkTimeMillis<500)
+      return;
+    lastBlinkTimeMillis=millis();
 	   ledB=(ledB==LOW?HIGH:LOW);
-     leds[ 0 ] = Rgb{ ledB*255,0, 0 };
-     leds.show();
-     leds.wait();
+     leds[ 0 ] = Rgb{ ledB*255/4,0, 0 };
 	}
+  else
+  {
+    leds[ 0 ] = Rgb{ val, 0, 0 };
+  }
+  leds.show();
+  leds.wait();
 }
+
 void BlinkGreenLED(unsigned int val=-1)
 {
   if (val==-1)
 	{
+    if (millis()-lastBlinkTimeMillis<500)
+      return;
+    lastBlinkTimeMillis=millis();
 	   ledB=(ledB==LOW?HIGH:LOW);
-     leds[ 0 ] = Rgb{ 0, ledB*255, 0 };
-//     u8g2.setPowerSave(1);
-     leds.show();
-     leds.wait();
-//     u8g2.setPowerSave(0);
+     leds[ 0 ] = Rgb{ 0, ledB*255/4, 0 };
 	}
+  else
+  {
+    leds[ 0 ] = Rgb{ 0, val, 0 };
+  }
+  leds.show();
+  leds.wait();
 }
+
 void BlinkBlueLED(unsigned int val=-1)
 {
 	if (val==-1)
 	{
-	   ledB=(ledB==LOW?HIGH:LOW);
-     leds[ 0 ] = Rgb{ 0, 0, ledB*255 };
-//     Wire.endTransmission();
-//     u8g2.setPowerSave(1);
-     leds.show();
-     leds.wait();
-//     u8g2.setPowerSave(0);
+    if (millis()-lastBlinkTimeMillis<500)
+      return;
+    lastBlinkTimeMillis=millis();
+	  ledB=(ledB==LOW?HIGH:LOW);
+    leds[ 0 ] = Rgb{ 0, 0, ledB*255/4 };
 	}
-	else
+  else
+  {
+    leds[ 0 ] = Rgb{ 0, 0, val };
+  }
+  leds.show();
+  leds.wait();
+}
+void BlinkPinkLED(unsigned int val=-1)
+{
+	if (val==-1)
 	{
-		ledB=val;
+    if (millis()-lastBlinkTimeMillis<500)
+      return;
+    lastBlinkTimeMillis=millis();
+	  ledB=(ledB==LOW?HIGH:LOW);
+    leds[ 0 ] = Rgb{ 0xFF*ledB/4, 0x18*ledB/4, 0x94*ledB/4 };
 	}
+  else
+  {
+    leds[ 0 ] = Rgb{ 0, 0, 0 };
+  }
+  leds.show();
+  leds.wait();
+}
+
+void BlinkYellowLED(unsigned int val=-1)
+{
+	if (val==-1)
+	{
+    if (millis()-lastBlinkTimeMillis<500)
+      return;
+    lastBlinkTimeMillis=millis();
+	  ledB=(ledB==LOW?HIGH:LOW);
+    leds[ 0 ] = Rgb{ 0xFF*ledB, 0x80*ledB, 0 };
+	}
+  else
+  {
+    leds[ 0 ] = Rgb{ 0, 0, 0 };
+  }
+  leds.show();
+  leds.wait();
 }
 
 #ifdef WIFI_ENABLE
@@ -1027,7 +1066,7 @@ void setup(void) {
 //Wire.begin(4,15);
 delay(100);
 
-  pinMode(BLUE_LED, OUTPUT);
+  pinMode(BLUE_LED_PIN, OUTPUT);
 //  pinMode(GREEN_LED, OUTPUT);
 //  pinMode(RED_LED, OUTPUT);
 //  ledcSetup(1, 12000, 8);
@@ -1039,14 +1078,13 @@ delay(100);
 
   pinMode(COUNTER_REMOVE_BUTTON_PIN,INPUT_PULLUP);
   pinMode(MOLD_BUTTON_PIN, INPUT_PULLUP);
-
   pinMode(SCL,INPUT_PULLUP);
   pinMode(SDA,INPUT_PULLUP);
 //  digitalWrite(BLUE_LED,LOW);
 //  digitalWrite(GREEN_LED,LOW);
 //  digitalWrite(RED_LED,LOW);
   ledB=LOW;
-  digitalWrite(BLUE_LED,HIGH);
+  digitalWrite(BLUE_LED_PIN,HIGH);
 
   uint8_t mc[6];
   esp_efuse_mac_get_default(mc);
@@ -1275,8 +1313,8 @@ SPI.end();
 #ifdef ROTARY_ENABLE
 btn.initialize(rotorButtonPin);
 rotor.initialize(rotorPinA, rotorPinB);
-//pinMode(rotorPinA, INPUT);
-//pinMode(rotorPinB, INPUT);
+pinMode(rotorPinA, INPUT_PULLUP);
+pinMode(rotorPinB, INPUT_PULLUP);
 
 rotor.setMinMax(0, 255);
 rotor.setPosition(5);
@@ -1299,9 +1337,9 @@ digitalWrite(LORA_RST,LOW);
     digitalWrite(16, HIGH); // while OLED is running, must set GPIO16 to high
   */
   //  rtc_clk_cpu_freq_set(RTC_CPU_FREQ_2M);
-  rtc_clk_cpu_freq_set(RTC_CPU_FREQ_80M);
+  //rtc_clk_cpu_freq_set(RTC_CPU_FREQ_80M);
   // rtc_clk_cpu_freq_set(RTC_CPU_FREQ_160M);
-  //rtc_clk_cpu_freq_set(RTC_CPU_FREQ_240M);
+  rtc_clk_cpu_freq_set(RTC_CPU_FREQ_240M);
 	#ifdef U8G2_ENABLE
 	u8g2.begin();
   u8g2.setPowerSave(0);
@@ -1411,7 +1449,7 @@ int messagesCnt=0;
 
 void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long mouldOpenedTime)
 {
-	BlinkBlueLED();
+	BlinkBlueLED(255);
   unsigned long epoch = (millis() / 1000) + unixStartTime;
   cycleTime *= 3;
   String et=String(eventType);
@@ -1488,7 +1526,7 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
     http.end();  //Free resources
   }
   */
-	BlinkBlueLED();
+	BlinkBlueLED(0);
 }
 //7 pixel - u8g2_font_haxrcorp4089_t_cyrillic
 //10 pixel - u8g2_font_unifont_t_cyrillic
@@ -1544,12 +1582,12 @@ void modbusHregSetStringChar8(uint16_t hregNum,char* str,uint8_t maxlen)
 void loop() {
 //    Serial.println(WiFi.status());
 //    BlinkBlueLED();
-
+/*
     if ( millis() % 10000 < 5000 )
         showGradient();
     else
         showRgb();
-
+*/
         if ( millis() % 2000<50 )
           readDHT12();
 
@@ -1585,17 +1623,21 @@ void loop() {
 
 	//rotor.update();
   #ifdef ROTARY_ENABLE
-//  UpdateRotor();
+  UpdateRotor();
 	btn.update();
   if (btn.isPressed()) {
-    led_brightness++;
-    led_brightness&=15;
-    BlinkBlueLED();
-		Serial.print("Rotary Button Pressed.");
-    Serial.print("led_brightness=");
-    Serial.println((led_brightness*16)+15);
+  //  led_brightness++;
+  //  led_brightness&=15;
+//    BlinkBlueLED();
+		Serial.println("Rotary Button Pressed.");
+    long pos1 = rotor.getPosition();
+    Serial.print("Rotor position:");
+    Serial.println(pos1);
+
+//    Serial.print("led_brightness=");
+//    Serial.println((led_brightness*16)+15);
   }
-  led_brightness2++;//led_brightness2&=15;
+  //led_brightness2++;//led_brightness2&=15;
   if(interruptCounter>0){
       portENTER_CRITICAL(&mux);
       interruptCounter--;
@@ -1846,6 +1888,18 @@ void loop() {
     }
   }
 */
+  if (machineStatus==PRODUCTION_STOPPED)
+  {
+    BlinkRedLED();
+  }
+  if (machineStatus==MOLD_CLOSED)
+  {
+    BlinkGreenLED();
+  }
+  if (machineStatus==MOLD_OPENED)
+  {
+    BlinkYellowLED();
+  }
   if (isDisplayOn == 0)
   {
 		//DISPLAY IS OFF
@@ -1885,7 +1939,7 @@ void loop() {
 	u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
   //sprintf(machineFullName, "M%s", machineNumber);
   sprintf(machineFullName, "%s-%s", machineNumber, machineName);
-  u8g2.print(machineFullName);
+  u8g2.drawUTF8(0,20,machineFullName);
 
   u8g2.drawRBox(128-25, 0, 25, 12, 2);
   //  if (frame&65535>32768) {u8g2.setDrawColor(1);} else {u8g2.setDrawColor(0);}
