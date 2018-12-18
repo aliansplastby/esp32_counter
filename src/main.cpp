@@ -1,22 +1,24 @@
 #define U8G2_ENABLE //40KB
+//#define DHT12_ENABLE
 //#define SD_ENABLE //40KB
 //#define LORA32_ENABLE //7KB
 #define WIFI_ENABLE //430KB
 #define MODBUS_ENABLE
-//#define HTTPCLIENT_ENABLE //JSON+HTTP=5KB
+#define HTTPCLIENT_ENABLE //JSON+HTTP=5KB
 //#defitane SONAR_HC04_ENABLE
-//#define BLE_ENABLE //750kb
-#define ROTARY_ENABLE //3kb
+#define BLE_ENABLE //750kb
+//#define ROTARY_ENABLE //3kb
 //#define PREFERENCES_ENABLE //8kb
-
-//#define WIFI_GATEWAY
 //#define LORA_GATEWAY
 
 #include <Arduino.h>
 
+/** Build time */
+const char compileDate[] = __DATE__ " " __TIME__;
+/** Unique device name */
+char apName[] = "MOLDMON-xxxxxxxxxxxx";
 
-#include <DHT12.h>
-#define LED_DATA_PIN 5
+#define LED_DATA_PIN 2
 #define MOLD_BUTTON_PIN 17
 #define COUNTER_REMOVE_BUTTON_PIN 0
 #define BLUE_LED_PIN 25
@@ -28,7 +30,10 @@ static const int rotorPinB = 2;	// the other quadrature pin
 char scrollingString[255];
 int scrollingPos;
 
+#ifdef DHT12_ENABLE
+#include <DHT12.h>
 DHT12 DHT;
+#endif
 int humidity;
 int temperature;
 
@@ -45,13 +50,13 @@ int distance;
 const int LED_COUNT = 1;
 const int CHANNEL = 0;
 // SmartLed -> RMT driver (WS2812/WS2812B/SK6812/WS2813)
-SmartLed leds( LED_WS2812B, LED_COUNT, LED_DATA_PIN, CHANNEL, DoubleBuffer );
+SmartLed leds( { 350, 1500, 1500, 350, 50000 }, LED_COUNT, LED_DATA_PIN, CHANNEL, DoubleBuffer );
 //SmartLed leds1( LED_WS2812B, LED_COUNT, 2, CHANNEL, DoubleBuffer );
 uint8_t hue;
 uint8_t v;
 
 void showRgb(int r=0,int g=0,int b=0) {
-    leds[ 0 ] = Rgb{ r, g, b };
+    leds[ 0 ] = Rgb{ (uint8_t)r,(uint8_t)g,(uint8_t)b };
     leds.show();
 }
 
@@ -65,9 +70,9 @@ volatile uint32_t R, G, B;           // the Red Green and Blue color components
 #define GREEN 2
 #define RED 4
 
-portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 #ifdef ROTARY_ENABLE
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 volatile int interruptCounter = 0;
 #include <Button.h>
 #include <TicksPerSecond.h>
@@ -88,6 +93,15 @@ volatile int interruptCounter = 0;
 #ifdef WIFI_ENABLE
 const char* ssid = "ALIANSPLAST";
 const char* password =  "300451566";
+
+bool usePrimAP = true;
+/** SSIDs of local WiFi networks */
+String ssidPrim;
+String ssidSec;
+/** Password for local WiFi network */
+String pwPrim;
+String pwSec;
+
 #include <WiFi.h>
 
 #ifdef MODBUS_ENABLE
@@ -183,266 +197,6 @@ void hueToRGB(uint8_t hue, uint8_t brightness)
     }
 }
 
-#ifdef BLE_ENABLE
-#define GATTC_TAG "GATTC_DEMO"
-#define PROFILE_A_APP_ID 0
-
-#include <nvs_flash.h>
-#include <esp_bt.h>            // ESP32 BLE
-//#include <esp_bt_device.h>     // ESP32 BLE
-#include <esp_bt_main.h>       // ESP32 BLE
-#include <esp_gap_ble_api.h>   // ESP32 BLE
-//#include <esp_gatts_api.h>     // ESP32 BLE
-#include <esp_gattc_api.h>     // ESP32 BLE
-//#include <esp_gatt_common_api.h>// ESP32 BLE
-#endif
-
-#ifdef BLE_ENABLE
-#define REMOTE_SERVICE_UUID        0x00FF
-#define REMOTE_NOTIFY_CHAR_UUID    0xFF01
-#define PROFILE_NUM      1
-
-static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
-static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
-static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
-
-static bool connect    = false;
-static bool get_server = false;
-
-static esp_bt_uuid_t remote_filter_service_uuid = {
-    .len = ESP_UUID_LEN_16,
-    .uuid = {.uuid16 = REMOTE_SERVICE_UUID,},
-};
-
-static esp_bt_uuid_t remote_filter_char_uuid = {
-    .len = ESP_UUID_LEN_16,
-    .uuid = {.uuid16 = REMOTE_NOTIFY_CHAR_UUID,},
-};
-
-static esp_bt_uuid_t notify_descr_uuid = {
-    .len = ESP_UUID_LEN_16,
-    .uuid = {.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG,},
-};
-
-static esp_ble_scan_params_t ble_scan_params = {
-    .scan_type              = BLE_SCAN_TYPE_ACTIVE,
-    .own_addr_type          = BLE_ADDR_TYPE_PUBLIC,
-    .scan_filter_policy     = BLE_SCAN_FILTER_ALLOW_ALL,
-    .scan_interval          = 0x50,
-    .scan_window            = 0x30
-};
-
-struct gattc_profile_inst {
-    esp_gattc_cb_t gattc_cb;
-    uint16_t gattc_if;
-    uint16_t app_id;
-    uint16_t conn_id;
-    uint16_t service_start_handle;
-    uint16_t service_end_handle;
-    uint16_t char_handle;
-    esp_bd_addr_t remote_bda;
-};
-
-
-/* One gatt-based profile one app_id and one gattc_if, this array will store the gattc_if returned by ESP_GATTS_REG_EVT */
-
-static struct gattc_profile_inst gl_profile_tab[PROFILE_NUM] = {
-    [PROFILE_A_APP_ID] = {
-        .gattc_cb = gattc_profile_event_handler,
-        .gattc_if = ESP_GATT_IF_NONE,       // Not get the gatt_if, so initial is ESP_GATT_IF_NONE
-    },
-};
-
-
-static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
-{
-    esp_ble_gattc_cb_param_t *p_data = (esp_ble_gattc_cb_param_t *)param;
-    esp_err_t scan_ret;
-    esp_err_t mtu_ret;
-    esp_gatt_srvc_id_t *srvc_id;
-    switch (event) {
-    case ESP_GATTC_REG_EVT:
-        ESP_LOGE(GATTC_TAG, "ESP_GATTC_REG_EVT");
-        scan_ret = esp_ble_gap_set_scan_params(&ble_scan_params);
-        if (scan_ret){
-          ESP_LOGE(GATTC_TAG, "set scan params error, error code = %x", scan_ret);
-        }
-        break;
-    case ESP_GATTC_CONNECT_EVT:
-        ESP_LOGE(GATTC_TAG, "ESP_GATTC_CONNECT_EVT conn_id %d, if %d", p_data->connect.conn_id, gattc_if);
-        break;
-    case ESP_GATTC_OPEN_EVT:
-        ESP_LOGE(GATTC_TAG, "ESP_GATTC_OPEN_EVT");
-        if (param->open.status != ESP_GATT_OK){
-            ESP_LOGE(GATTC_TAG, "open failed, status %d", p_data->open.status);
-        }
-        break;
-    case ESP_GATTC_CFG_MTU_EVT:
-        ESP_LOGE(GATTC_TAG, "ESP_GATTC_CFG_MTU_EVT");
-
-        ESP_LOGE(GATTC_TAG,"config mtu failed, error status = %x", param->cfg_mtu.status);
-        break;
-    case ESP_GATTC_SEARCH_RES_EVT:
-    ESP_LOGE(GATTC_TAG, "ESP_GATTC_SEARCH_RES_EVT");
-        break;
-
-    case ESP_GATTC_SEARCH_CMPL_EVT:
-    ESP_LOGE(GATTC_TAG, "ESP_GATTC_SEARCH_CMPL_EVT");
-        break;
-    case ESP_GATTC_REG_FOR_NOTIFY_EVT:
-    ESP_LOGE(GATTC_TAG, "ESP_GATTC_REG_FOR_NOTIFY_EVT");
-        break;
-
-    case ESP_GATTC_NOTIFY_EVT:
-        if (p_data->notify.is_notify){
-            ESP_LOGE(GATTC_TAG, "ESP_GATTC_NOTIFY_EVT, receive notify value:");
-        }else{
-            ESP_LOGE(GATTC_TAG, "ESP_GATTC_NOTIFY_EVT, receive indicate value:");
-        }
-        esp_log_buffer_hex(GATTC_TAG, p_data->notify.value, p_data->notify.value_len);
-        break;
-    case ESP_GATTC_WRITE_DESCR_EVT:
-        ESP_LOGE(GATTC_TAG, "ESP_GATTC_WRITE_DESCR_EVT");
-        break;
-    case ESP_GATTC_SRVC_CHG_EVT: {
-      ESP_LOGE(GATTC_TAG, "ESP_GATTC_SRVC_CHG_EVT");
-        break;
-    }
-    case ESP_GATTC_WRITE_CHAR_EVT:
-    ESP_LOGE(GATTC_TAG, "ESP_GATTC_WRITE_CHAR_EVT");
-        break;
-    case ESP_GATTC_DISCONNECT_EVT:
-        ESP_LOGE(GATTC_TAG, "ESP_GATTC_DISCONNECT_EVT, reason = %d", p_data->disconnect.reason);
-        break;
-    default:
-        break;
-
-}
-}
-
-
-static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
-{
-    /* If event is register event, store the gattc_if for each profile */
-    if (event == ESP_GATTC_REG_EVT) {
-        if (param->reg.status == ESP_GATT_OK) {
-            gl_profile_tab[param->reg.app_id].gattc_if = gattc_if;
-        } else {
-            ESP_LOGI(GATTC_TAG, "reg app failed, app_id %04x, status %d",
-                    param->reg.app_id,
-                    param->reg.status);
-            return;
-        }
-    }
-
-    /* If the gattc_if equal to profile A, call profile A cb handler,
-     * so here call each profile's callback */
-    do {
-        int idx;
-        for (idx = 0; idx < PROFILE_NUM; idx++) {
-            if (gattc_if == ESP_GATT_IF_NONE || /* ESP_GATT_IF_NONE, not specify a certain gatt_if, need to call every profile cb function */
-                    gattc_if == gl_profile_tab[idx].gattc_if) {
-                if (gl_profile_tab[idx].gattc_cb) {
-                    gl_profile_tab[idx].gattc_cb(event, gattc_if, param);
-                }
-            }
-        }
-    } while (0);
-}
-
-static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
-{
-    uint8_t *adv_name = NULL;
-    uint8_t adv_name_len = 0;
-    switch (event) {
-    case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: {
-      ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT");
-        //the unit of the duration is second
-        uint32_t duration = 30;
-        esp_ble_gap_start_scanning(duration);
-        break;
-    }
-    case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT:
-        //scan start complete event to indicate scan start successfully or failed
-        ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_SCAN_START_COMPLETE_EVT");
-        if (param->scan_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
-            ESP_LOGE(GATTC_TAG, "scan start failed, error status = %x", param->scan_start_cmpl.status);
-            break;
-        }
-        break;
-    case ESP_GAP_BLE_SCAN_RESULT_EVT: {
-        ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_SCAN_RESULT_EVT");
-
-        esp_ble_gap_cb_param_t *scan_result = (esp_ble_gap_cb_param_t *)param;
-        switch (scan_result->scan_rst.search_evt) {
-        case ESP_GAP_SEARCH_INQ_RES_EVT:
-            Serial.printf("BLE MAC FOUND:%x:%x:%x:%x:%x:%x\n",scan_result->scan_rst.bda[0],scan_result->scan_rst.bda[1],scan_result->scan_rst.bda[2],scan_result->scan_rst.bda[3],scan_result->scan_rst.bda[4],scan_result->scan_rst.bda[5] );
-/*
-            esp_log_buffer_hex(GATTC_TAG, scan_result->scan_rst.bda, 6);
-            ESP_LOGE(GATTC_TAG, "searched Adv Data Len %d, Scan Response Len %d", scan_result->scan_rst.adv_data_len, scan_result->scan_rst.scan_rsp_len);
-            adv_name = esp_ble_resolve_adv_data(scan_result->scan_rst.ble_adv,
-                                                ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
-            ESP_LOGE(GATTC_TAG, "searched Device Name Len %d", adv_name_len);
-            ESP_LOG_BUFFER_CHAR_LEVEL(GATTC_TAG, adv_name, adv_name_len,ESP_LOG_ERROR);
-            ESP_LOGE(GATTC_TAG, "\n");
-            if (adv_name != NULL) {
-                    ESP_LOGI(GATTC_TAG, "Found device %s\n", adv_name);
-            }
-*/
-//            if (adv_name != NULL) {
-//                if (strlen(remote_device_name) == adv_name_len && strncmp((char *)adv_name, remote_device_name, adv_name_len) == 0) {
-//                    ESP_LOGI(GATTC_TAG, "searched device %s\n", remote_device_name);
-//                    if (connect == false) {
-//                        connect = true;
-//                        ESP_LOGI(GATTC_TAG, "connect to the remote device.");
-//                        esp_ble_gap_stop_scanning();
-//                        esp_ble_gattc_open(gl_profile_tab[PROFILE_A_APP_ID].gattc_if, scan_result->scan_rst.bda, scan_result->scan_rst.ble_addr_type, true);
-//                    }
-//                }
-//            }
-            break;
-        case ESP_GAP_SEARCH_INQ_CMPL_EVT:
-            ESP_LOGE(GATTC_TAG, "ESP_GAP_SEARCH_INQ_CMPL_EVT");
-            esp_ble_gap_start_scanning(60);
-
-            break;
-        default:
-        ESP_LOGE(GATTC_TAG, "ESP_GAP_SEARCH_INQ_CMPL_EVT DEF_EVT:%d",scan_result->scan_rst.search_evt);
-            break;
-        }
-        break;
-    }
-
-    case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT:
-    ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT status = %x", param->scan_stop_cmpl.status);
-        if (param->scan_stop_cmpl.status != ESP_BT_STATUS_SUCCESS){
-            break;
-        }
-        break;
-
-    case ESP_GAP_BLE_ADV_STOP_COMPLETE_EVT:
-        ESP_LOGE(GATTC_TAG, "ESP_GAP_BLE_ADV_STOP_COMPLETE_EVT status = %x", param->adv_stop_cmpl.status);
-        if (param->adv_stop_cmpl.status != ESP_BT_STATUS_SUCCESS){
-            ESP_LOGE(GATTC_TAG, "adv stop failed, error status = %x", param->adv_stop_cmpl.status);
-            break;
-        }
-        break;
-    case ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT:
-         ESP_LOGE(GATTC_TAG, "update connection params status = %d, min_int = %d, max_int = %d,conn_int = %d,latency = %d, timeout = %d",
-                  param->update_conn_params.status,
-                  param->update_conn_params.min_int,
-                  param->update_conn_params.max_int,
-                  param->update_conn_params.conn_int,
-                  param->update_conn_params.latency,
-                  param->update_conn_params.timeout);
-        break;
-    default:
-        break;
-    }
-}
-#endif
-
-#ifndef WIFI_GATEWAY
 //sendin
 IPAddress ip(192,168,1,211);
 IPAddress subnet(255,255,255,0);
@@ -553,11 +307,11 @@ void BlinkRedLED(unsigned int val=-1)
       return;
     lastBlinkTimeMillis=millis();
 	   ledB=(ledB==LOW?HIGH:LOW);
-     leds[ 0 ] = Rgb{ ledB*255/4,0, 0 };
+     leds[ 0 ] = Rgb{ 0,(uint8_t)(ledB*255/4), 0 };
 	}
   else
   {
-    leds[ 0 ] = Rgb{ val, 0, 0 };
+    leds[ 0 ] = Rgb{ (uint8_t)val, 0, 0 };
   }
   leds.show();
   leds.wait();
@@ -571,11 +325,11 @@ void BlinkGreenLED(unsigned int val=-1)
       return;
     lastBlinkTimeMillis=millis();
 	   ledB=(ledB==LOW?HIGH:LOW);
-     leds[ 0 ] = Rgb{ 0, ledB*255/4, 0 };
+     leds[ 0 ] = Rgb{ uint8_t(ledB*255/4), 0, 0 };
 	}
   else
   {
-    leds[ 0 ] = Rgb{ 0, val, 0 };
+    leds[ 0 ] = Rgb{ 0, (uint8_t)val, 0 };
   }
   leds.show();
   leds.wait();
@@ -589,15 +343,16 @@ void BlinkBlueLED(unsigned int val=-1)
       return;
     lastBlinkTimeMillis=millis();
 	  ledB=(ledB==LOW?HIGH:LOW);
-    leds[ 0 ] = Rgb{ 0, 0, ledB*255/4 };
+    leds[ 0 ] = Rgb{ 0, 0, (uint8_t)(ledB*255/4) };
 	}
   else
   {
-    leds[ 0 ] = Rgb{ 0, 0, val };
+    leds[ 0 ] = Rgb{ 0, 0, (uint8_t)val };
   }
   leds.show();
   leds.wait();
 }
+
 void BlinkPinkLED(unsigned int val=-1)
 {
 	if (val==-1)
@@ -606,7 +361,7 @@ void BlinkPinkLED(unsigned int val=-1)
       return;
     lastBlinkTimeMillis=millis();
 	  ledB=(ledB==LOW?HIGH:LOW);
-    leds[ 0 ] = Rgb{ 0xFF*ledB/4, 0x18*ledB/4, 0x94*ledB/4 };
+    leds[ 0 ] = Rgb{ (uint8_t)(0x18*ledB/4),(uint8_t)(0xFF*ledB/4),(uint8_t)(0x94*ledB/4) };
 	}
   else
   {
@@ -624,7 +379,7 @@ void BlinkYellowLED(unsigned int val=-1)
       return;
     lastBlinkTimeMillis=millis();
 	  ledB=(ledB==LOW?HIGH:LOW);
-    leds[ 0 ] = Rgb{ 0xFF*ledB, 0x80*ledB, 0 };
+    leds[ 0 ] = Rgb{ (uint8_t)(0x80*ledB),(uint8_t)(0xFF*ledB),  0 };
 	}
   else
   {
@@ -676,7 +431,7 @@ IRAM_ATTR void UpdateRotor() {
 void updateStrings(void)
 {
 //  language = language & 3;
-
+  language=1;
   if (language == 0)
   {
     strcpy(moldInvId, "746");
@@ -701,8 +456,8 @@ void updateStrings(void)
 
   if (language == 1)
   {
-    strcpy(moldInvId, "962");
-    strcpy(productArticle, "PAIL-1,0/131mm");
+    strcpy(moldInvId, "746");
+    strcpy(productArticle, "PAIL-1,0/131mm 2.1,2.2");
     strcpy(machineNumber, "2.5");
 //    strcpy(machineName, "ARBURG720H-2900-1300");
     if (machineStatus == MOLD_OPENED) {
@@ -823,8 +578,10 @@ void WiFiConnect()
 //  esp_wifi_init(WIFI_INIT_CONFIG_DEFAULT);
 //  esp_wifi_set_mode(ESP_ERR_WIFI_NOT_INIT);
 //  WiFi.forceSleepWake();
-  WiFi.mode(WIFI_STA);
 //  wifi_station_connect();
+
+
+  WiFi.mode(WIFI_STA);
 
   if (ip!=0)
   {
@@ -834,8 +591,16 @@ void WiFiConnect()
 
   int c = 15;
   Serial.println("Connecting to WiFi");
-  WiFi.begin(ssid, password);
-	#ifdef U8G2_ENABLE
+  //WiFi.begin(ssid, password);
+  if (usePrimAP) {
+    Serial.println(ssidPrim);
+    WiFi.begin(ssidPrim.c_str(), pwPrim.c_str());
+  } else {
+    Serial.println(ssidSec);
+    WiFi.begin(ssidSec.c_str(), pwSec.c_str());
+  }
+
+  #ifdef U8G2_ENABLE
 	u8g2.clearBuffer();
 	#endif
 	strcpy(msg, "Connecting to WiFi ");
@@ -867,7 +632,13 @@ void WiFiConnect()
         //Serial.println("WiFi set config!");
         //WiFi.config(ip, gateway, subnet);
       }
-      WiFi.begin(ssid, password);
+      if (usePrimAP) {
+    		Serial.println(ssidPrim);
+    		WiFi.begin(ssidPrim.c_str(), pwPrim.c_str());
+    	} else {
+    		Serial.println(ssidSec);
+    		WiFi.begin(ssidSec.c_str(), pwSec.c_str());
+    	}
     	c=15;
     	while (WiFi.status() != WL_CONNECTED && c > 0) {
     		strcpy(&msg[strlen(msg)], ".");
@@ -1028,6 +799,7 @@ void testFileIO(fs::FS &fs, const char * path){
 
 void readDHT12()
 {
+#ifdef DHT12_ENABLE
   // READ DATA
 Serial.print("DHT12, \t");
 int status = DHT.read();
@@ -1060,7 +832,469 @@ if (status==DHT12_OK)
     temperature=DHT.temperature;
     humidity=DHT.humidity;
 }
+#endif
 }
+
+#ifdef BLE_ENABLE
+// Includes for JSON object handling
+// Requires ArduinoJson library
+// https://arduinojson.org
+// https://github.com/bblanchon/ArduinoJson
+#include <ArduinoJson.h>
+// Includes for BLE
+#include <nvs.h>
+#include <nvs_flash.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLEDevice.h>
+#include <BLEAdvertising.h>
+#include <Preferences.h>
+
+/** Flag if stored AP credentials are available */
+bool hasCredentials = false;
+/** Connection status */
+volatile bool isConnected = false;
+/** Connection change status */
+bool connStatusChanged = false;
+
+// List of Service and Characteristic UUIDs
+#define SERVICE_UUID  "0000aaaa-ead2-11e7-80c1-9a214cf093ae"
+#define WIFI_UUID     "00005555-ead2-11e7-80c1-9a214cf093ae"
+
+/** Characteristic for digital output */
+BLECharacteristic *pCharacteristicWiFi;
+/** BLE Advertiser */
+BLEAdvertising* pAdvertising;
+/** BLE Service */
+BLEService *pService;
+/** BLE Server */
+BLEServer *pServer;
+
+/** Buffer for JSON string */
+// MAx size is 51 bytes for frame:
+// {"ssidPrim":"","pwPrim":"","ssidSec":"","pwSec":""}
+// + 4 x 32 bytes for 2 SSID's and 2 passwords
+StaticJsonBuffer<300> jsonBuffer;
+
+/**
+ * Create unique device name from MAC address
+ **/
+void createName() {
+	uint8_t baseMac[6];
+	// Get MAC address for WiFi station
+	esp_read_mac(baseMac, ESP_MAC_WIFI_STA);
+	// Write unique name into apName
+	sprintf(apName, "MOLDMON-%02X%02X%02X%02X%02X%02X", baseMac[0], baseMac[1], baseMac[2], baseMac[3], baseMac[4], baseMac[5]);
+}
+
+class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
+{
+    void onResult(BLEAdvertisedDevice advertisedDevice)
+    {
+      Serial.printf("Advertised Device:RSSI:%i %s \n", advertisedDevice.getRSSI(), advertisedDevice.toString().c_str());
+
+    }
+};
+/**
+ * MyServerCallbacks
+ * Callbacks for client connection and disconnection
+ */
+class MyServerCallbacks: public BLEServerCallbacks {
+	// TODO this doesn't take into account several clients being connected
+	void onConnect(BLEServer* pServer) {
+		Serial.println("BLE client connected");
+	};
+
+	void onDisconnect(BLEServer* pServer) {
+		Serial.println("BLE client disconnected");
+		pAdvertising->start();
+	}
+};
+
+/**
+ * MyCallbackHandler
+ * Callbacks for BLE client read/write requests
+ */
+class MyCallbackHandler: public BLECharacteristicCallbacks {
+	void onWrite(BLECharacteristic *pCharacteristic) {
+		std::string value = pCharacteristic->getValue();
+		if (value.length() == 0) {
+			return;
+		}
+		Serial.println("Received over BLE: " + String((char *)&value[0]));
+
+		// Decode data
+		int keyIndex = 0;
+		for (int index = 0; index < value.length(); index ++) {
+			value[index] = (char) value[index] ^ (char) apName[keyIndex];
+			keyIndex++;
+			if (keyIndex >= strlen(apName)) keyIndex = 0;
+		}
+
+		/** Json object for incoming data */
+		JsonObject& jsonIn = jsonBuffer.parseObject((char *)&value[0]);
+		if (jsonIn.success()) {
+			if (jsonIn.containsKey("ssidPrim") &&
+					jsonIn.containsKey("pwPrim") &&
+					jsonIn.containsKey("ssidSec") &&
+					jsonIn.containsKey("pwSec")) {
+				ssidPrim = jsonIn["ssidPrim"].as<String>();
+				pwPrim = jsonIn["pwPrim"].as<String>();
+				ssidSec = jsonIn["ssidSec"].as<String>();
+				pwSec = jsonIn["pwSec"].as<String>();
+
+				Preferences preferences;
+				preferences.begin("WiFiCred", false);
+				preferences.putString("ssidPrim", ssidPrim);
+				preferences.putString("ssidSec", ssidSec);
+				preferences.putString("pwPrim", pwPrim);
+				preferences.putString("pwSec", pwSec);
+				preferences.putBool("valid", true);
+				preferences.end();
+
+				Serial.println("Received over bluetooth:");
+				Serial.println("primary SSID: "+ssidPrim+" password: "+pwPrim);
+				Serial.println("secondary SSID: "+ssidSec+" password: "+pwSec);
+				connStatusChanged = true;
+				hasCredentials = true;
+			} else if (jsonIn.containsKey("erase")) {
+				Serial.println("Received erase command");
+				Preferences preferences;
+				preferences.begin("WiFiCred", false);
+				preferences.clear();
+				preferences.end();
+				connStatusChanged = true;
+				hasCredentials = false;
+				ssidPrim = "";
+				pwPrim = "";
+				ssidSec = "";
+				pwSec = "";
+
+				int err;
+				err=nvs_flash_init();
+				Serial.println("nvs_flash_init: " + err);
+				err=nvs_flash_erase();
+				Serial.println("nvs_flash_erase: " + err);
+			} else if (jsonIn.containsKey("reset")) {
+				WiFi.disconnect();
+				esp_restart();
+			}
+		} else {
+			Serial.println("Received invalid JSON");
+		}
+		jsonBuffer.clear();
+	};
+
+	void onRead(BLECharacteristic *pCharacteristic) {
+		Serial.println("BLE onRead request");
+		String wifiCredentials;
+
+		/** Json object for outgoing data */
+		JsonObject& jsonOut = jsonBuffer.createObject();
+		jsonOut["ssidPrim"] = ssidPrim;
+		jsonOut["pwPrim"] = pwPrim;
+		jsonOut["ssidSec"] = ssidSec;
+		jsonOut["pwSec"] = pwSec;
+		// Convert JSON object into a string
+		jsonOut.printTo(wifiCredentials);
+
+		// encode the data
+		int keyIndex = 0;
+		Serial.println("Stored settings: " + wifiCredentials);
+		for (int index = 0; index < wifiCredentials.length(); index ++) {
+			wifiCredentials[index] = (char) wifiCredentials[index] ^ (char) apName[keyIndex];
+			keyIndex++;
+			if (keyIndex >= strlen(apName)) keyIndex = 0;
+		}
+		pCharacteristicWiFi->setValue((uint8_t*)&wifiCredentials[0],wifiCredentials.length());
+		jsonBuffer.clear();
+	}
+};
+
+/**
+ * initBLE
+ * Initialize BLE service and characteristic
+ * Start BLE server and service advertising
+ */
+void initBLE() {
+	// Initialize BLE and set output power
+	BLEDevice::init(apName);
+	BLEDevice::setPower(ESP_PWR_LVL_P7);
+
+	// Create BLE Server
+	pServer = BLEDevice::createServer();
+
+	// Set server callbacks
+	pServer->setCallbacks(new MyServerCallbacks());
+
+	// Create BLE Service
+	pService = pServer->createService(BLEUUID(SERVICE_UUID),20);
+
+	// Create BLE Characteristic for WiFi settings
+	pCharacteristicWiFi = pService->createCharacteristic(
+		BLEUUID(WIFI_UUID),
+		// WIFI_UUID,
+		BLECharacteristic::PROPERTY_READ |
+		BLECharacteristic::PROPERTY_WRITE
+	);
+	pCharacteristicWiFi->setCallbacks(new MyCallbackHandler());
+
+	// Start the service
+	pService->start();
+
+	// Start advertising
+	pAdvertising = pServer->getAdvertising();
+	pAdvertising->start();
+}
+
+/** Callback for receiving IP address from AP */
+void gotIP(system_event_id_t event) {
+  Serial.println("Connected to WIFI");
+  isConnected = true;
+	connStatusChanged = true;
+}
+
+/** Callback for connection loss */
+void lostCon(system_event_id_t event) {
+	isConnected = false;
+	connStatusChanged = true;
+}
+
+/**
+	 scanWiFi
+	 Scans for available networks
+	 and decides if a switch between
+	 allowed networks makes sense
+
+	 @return <code>bool</code>
+	        True if at least one allowed network was found
+*/
+bool scanWiFi() {
+	/** RSSI for primary network */
+	int8_t rssiPrim;
+	/** RSSI for secondary network */
+	int8_t rssiSec;
+	/** Result of this function */
+	bool result = false;
+
+	Serial.println("Start scanning for networks");
+
+	WiFi.disconnect(true);
+	WiFi.enableSTA(true);
+	WiFi.mode(WIFI_STA);
+
+	// Scan for AP
+	int apNum = WiFi.scanNetworks(false,true,false,1000);
+	if (apNum == 0) {
+		Serial.println("Found no networks?????");
+		return false;
+	}
+
+	byte foundAP = 0;
+	bool foundPrim = false;
+
+	for (int index=0; index<apNum; index++) {
+		String ssid = WiFi.SSID(index);
+		Serial.println("Found AP: " + ssid + " RSSI: " + WiFi.RSSI(index));
+		if (!strcmp((const char*) &ssid[0], (const char*) &ssidPrim[0])) {
+			Serial.println("Found primary AP");
+			foundAP++;
+			foundPrim = true;
+			rssiPrim = WiFi.RSSI(index);
+      usePrimAP = true;
+      result=true;
+		}
+		if (!strcmp((const char*) &ssid[0], (const char*) &ssidSec[0])) {
+			Serial.println("Found secondary AP");
+			foundAP++;
+			rssiSec = WiFi.RSSI(index);
+      usePrimAP = false;
+      result=true;
+  	}
+	}
+/*
+	switch (foundAP) {
+		case 0:
+			result = false;
+			break;
+		case 1:
+			if (foundPrim) {
+				usePrimAP = true;
+			} else {
+				usePrimAP = false;
+			}
+			result = true;
+			break;
+		default:
+			Serial.printf("RSSI Prim: %d Sec: %d\n", rssiPrim, rssiSec);
+			if (rssiPrim > rssiSec) {
+				usePrimAP = true; // RSSI of primary network is better
+			} else {
+				usePrimAP = false; // RSSI of secondary network is better
+			}
+			result = true;
+			break;
+	}
+*/
+  return result;
+}
+
+/**
+ * Start connection to AP
+ */
+void connectWiFi() {
+	// Setup callback function for successful connection
+	WiFi.onEvent(gotIP, SYSTEM_EVENT_STA_GOT_IP);
+	// Setup callback function for lost connection
+	WiFi.onEvent(lostCon, SYSTEM_EVENT_STA_DISCONNECTED);
+
+	WiFi.disconnect(true);
+	WiFi.enableSTA(true);
+	WiFi.mode(WIFI_STA);
+
+	Serial.println();
+	Serial.print("Start connection to ");
+	if (usePrimAP) {
+		Serial.println(ssidPrim);
+		WiFi.begin(ssidPrim.c_str(), pwPrim.c_str());
+	} else {
+		Serial.println(ssidSec);
+		WiFi.begin(ssidSec.c_str(), pwSec.c_str());
+	}
+//  delay(6000);
+}
+
+void BleScanTask(void*){
+  // put your main code here, to run repeatedly:
+  Serial.println("Starting BLE scan task");
+  BLEScan *pBLEScan = BLEDevice::getScan(); //create new scan
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
+  pBLEScan->setInterval(0x50);
+  pBLEScan->setWindow(0x30);
+  while (1)
+  {
+  Serial.println("**************************");
+  BLEScanResults foundDevices = pBLEScan->start(30);
+  vTaskDelay(1000);
+  }
+  Serial.println("Ending BLE scan task");
+  vTaskDelete( NULL );
+}
+
+void ble_setup()
+{
+  esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+  createName();
+  Preferences preferences;
+  preferences.begin("WiFiCred", false);
+  bool hasPref = preferences.getBool("valid", false);
+  if (hasPref) {
+    ssidPrim = preferences.getString("ssidPrim","");
+    ssidSec = preferences.getString("ssidSec","");
+    pwPrim = preferences.getString("pwPrim","");
+    pwSec = preferences.getString("pwSec","");
+
+    if (ssidPrim.equals("")
+        || pwPrim.equals("")
+        || ssidSec.equals("")
+        || pwPrim.equals("")) {
+      Serial.println("Found preferences but credentials are invalid");
+    } else {
+      Serial.println("Read from preferences:");
+      Serial.println("primary SSID: "+ssidPrim+" password: "+pwPrim);
+      Serial.println("secondary SSID: "+ssidSec+" password: "+pwSec);
+      hasCredentials = true;
+    }
+  } else {
+    Serial.println("Could not find preferences, need send data over BLE");
+  }
+  preferences.end();
+
+  // Start BLE server
+  initBLE();
+
+    #define SCAN_TIME  3 // seconds
+    // put your main code here, to run repeatedly:
+    BLEScan *pBLEScan = BLEDevice::getScan(); //create new scan
+    pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+    pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
+    pBLEScan->setInterval(0x50);
+    pBLEScan->setWindow(0x30);
+
+  #ifdef SERIAL_PRINT
+    Serial.printf("Start BLE scan for %d seconds...\n", SCAN_TIME);
+  #endif
+
+    BLEScanResults foundDevices = pBLEScan->start(SCAN_TIME);
+    int count = foundDevices.getCount();
+//    ss << "[";
+    for (int i = 0; i < count; i++)
+    {
+  //    if (i > 0) {
+  //      ss << ",";
+  //    }
+      BLEAdvertisedDevice d = foundDevices.getDevice(i);
+      Serial.print("address:");
+      Serial.println(d.getAddress().toString().c_str());
+      Serial.print("rssi:");
+      Serial.print(d.getRSSI());
+      if (d.haveName())
+      {
+        Serial.print(",name:");
+        Serial.println(d.getName().c_str());
+      }
+      /*
+      ss << "{\"Address\":\"" << d.getAddress().toString() << "\",\"Rssi\":" << d.getRSSI();
+      if (d.haveName())
+      {
+        ss << ",\"Name\":\"" << d.getName() << "\"";
+      }
+      if (d.haveAppearance())
+      {
+        ss << ",\"Appearance\":" << d.getAppearance();
+      }
+      if (d.haveManufacturerData())
+      {
+        std::string md = d.getManufacturerData();
+        uint8_t* mdp = (uint8_t*)d.getManufacturerData().data();
+        char *pHex = BLEUtils::buildHexData(nullptr, mdp, md.length());
+        ss << ",\"ManufacturerData\":\"" << pHex << "\"";
+        free(pHex);
+      }
+      if (d.haveServiceUUID())
+      {
+        ss << ",\"ServiceUUID\":\"" << d.getServiceUUID().toString() << "\"" ;
+      }
+      if (d.haveTXPower())
+      {
+        ss << ",\"TxPower\":" << (int)d.getTXPower();
+      }
+      ss << "}";
+      */
+    }
+    Serial.println("BLE Scan done!");
+
+  if (hasCredentials) {
+    // Check for available AP's
+    if (!scanWiFi()) {
+      Serial.println("Could not find any AP");
+    } else {
+      // If AP was found, start connection
+      connectWiFi();
+    }
+  }
+
+  xTaskCreate(
+                    BleScanTask,          /* Task function. */
+                    "BleScanTask",        /* String with name of task. */
+                    5000,            /* Stack size in bytes. */
+                    NULL,             /* Parameter passed as input of the task */
+                    1,                /* Priority of the task. */
+                    NULL);            /* Task handle. */
+}
+#endif
+
 void setup(void) {
   Serial.begin(115200);
 //Wire.begin(4,15);
@@ -1075,7 +1309,18 @@ delay(100);
 //  ledcAttachPin(RED_LED, 1);
 //  ledcAttachPin(GREEN_LED, 2);
 //  ledcAttachPin(BLUE_LED, 3);
+Serial.printf("\r\nBoard Started1!\r\n");
+Serial.println("Using ESP object:");
+Serial.println(ESP.getSdkVersion());
+Serial.println("Using lower level function:");
+Serial.println(esp_get_idf_version());
+// Send some device info
+Serial.print("Build: ");
+Serial.println(compileDate);
 
+#ifdef BLE_ENABLE
+  ble_setup();
+#endif
   pinMode(COUNTER_REMOVE_BUTTON_PIN,INPUT_PULLUP);
   pinMode(MOLD_BUTTON_PIN, INPUT_PULLUP);
   pinMode(SCL,INPUT_PULLUP);
@@ -1089,64 +1334,7 @@ delay(100);
   uint8_t mc[6];
   esp_efuse_mac_get_default(mc);
   Serial.printf("\r\nBoard MAC address: %x:%x:%x:%x:%x:%x\r\n", mc[0],mc[1],mc[2],mc[3],mc[4],mc[5] );
-  rtc_clk_cpu_freq_set(RTC_CPU_FREQ_80M);
-
-#ifdef BLE_ENABLE
-esp_log_level_set(GATTC_TAG, ESP_LOG_VERBOSE);
-esp_err_t ret = nvs_flash_init();
-if (ret == ESP_ERR_NVS_NO_FREE_PAGES) {
-    nvs_flash_erase();
-    ret = nvs_flash_init();
-}
-
-ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
-esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-ret = esp_bt_controller_init(&bt_cfg);
-if (ret) {
-    ESP_LOGE(GATTC_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
-    return;
-}
-ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-if (ret) {
-    ESP_LOGE(GATTC_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
-    return;
-}
-ret = esp_bluedroid_init();
-if (ret) {
-    ESP_LOGE(GATTC_TAG, "%s init bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
-    return;
-}
-
-ret = esp_bluedroid_enable();
-if (ret) {
-    ESP_LOGE(GATTC_TAG, "%s enable bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
-    return;
-}
-//register the  callback function to the gap module
-ret = esp_ble_gap_register_callback(esp_gap_cb);
-if (ret){
-    ESP_LOGE(GATTC_TAG, "%s gap register failed, error code = %x\n", __func__, ret);
-    return;
-}
-//register the callback function to the gattc module
-ret = esp_ble_gattc_register_callback(esp_gattc_cb);
-if(ret){
-    ESP_LOGE(GATTC_TAG, "%s gattc register failed, error code = %x\n", __func__, ret);
-    return;
-}
-
-ret = esp_ble_gattc_app_register(PROFILE_A_APP_ID);
-if (ret){
-    ESP_LOGE(GATTC_TAG, "%s gattc app register failed, error code = %x\n", __func__, ret);
-}
-/*
-esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
- if (local_mtu_ret) {
-     ESP_LOGE(GATTC_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
- }
- */
- ESP_LOGE(GATTC_TAG, "BLE Init finished.");
-#endif
+//  rtc_clk_cpu_freq_set(RTC_CPU_FREQ_80M);
 
 /*SD CARD*****************************************/
 
@@ -1339,7 +1527,7 @@ digitalWrite(LORA_RST,LOW);
   //  rtc_clk_cpu_freq_set(RTC_CPU_FREQ_2M);
   //rtc_clk_cpu_freq_set(RTC_CPU_FREQ_80M);
   // rtc_clk_cpu_freq_set(RTC_CPU_FREQ_160M);
-  rtc_clk_cpu_freq_set(RTC_CPU_FREQ_240M);
+  //rtc_clk_cpu_freq_set(RTC_CPU_FREQ_240M);
 	#ifdef U8G2_ENABLE
 	u8g2.begin();
   u8g2.setPowerSave(0);
@@ -1352,18 +1540,20 @@ digitalWrite(LORA_RST,LOW);
 
   moldCycleCounter = readCounter();
 	#ifdef WIFI_ENABLE
+
   WiFiConnect();
   Serial.println(WiFi.status());
 	if (WiFi.status() == WL_CONNECTED)
 	{
   	getTime();
 	}
+
+  #ifdef MODBUS_ENABLE
   mb.begin();
   mb.addIsts(100);
   mb.addHreg(100,moldCycleCounter);
   mb.addHreg(102,0);
   mb.addHreg(103,0);
-
   mb.addHreg(110,0);
   mb.addHreg(111,0);
   mb.addHreg(112,0);
@@ -1380,9 +1570,7 @@ digitalWrite(LORA_RST,LOW);
   mb.addHreg(123,0);
   mb.addHreg(124,0);
   mb.addHreg(125,0);
-
-
-//  btStop();
+  #endif
 	#endif
 
   float vdd = rom_phy_get_vdd33() / 1000.0;
@@ -1447,7 +1635,7 @@ int displayOn;
 String* messages[128];
 int messagesCnt=0;
 
-void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long mouldOpenedTime)
+void sendClamp(long cycleTime, long counterValue,const char* eventType,unsigned long mouldOpenedTime)
 {
 	BlinkBlueLED(255);
   unsigned long epoch = (millis() / 1000) + unixStartTime;
@@ -1470,8 +1658,8 @@ void sendClamp(long cycleTime, long counterValue,char* eventType,unsigned long m
   messagesCnt++;
   if (messagesCnt==5 || et=="PAUSE_PRODUCTION_START" || et=="PAUSE_PRODUCTION_END")
   {
-    unsigned long m=millis();
 		#ifdef LORA32_ENABLE
+    unsigned long m=millis();
     if (!LoRa.begin(LORA_BAND)) {
     Serial.println("Starting LoRa failed!");
     while (1);
@@ -1547,6 +1735,7 @@ int prevCycleTime;
 
 void modbusHregSetStringChar16(uint16_t hregNum,wchar_t* str,uint8_t maxlen)
 {
+  #ifdef MODBUS_ENABLE
   wchar_t *p=str;
   uint16_t i=hregNum;
   uint8_t cnt=0;
@@ -1559,10 +1748,12 @@ void modbusHregSetStringChar16(uint16_t hregNum,wchar_t* str,uint8_t maxlen)
     p++;
     if (cnt==maxlen) break;
   }
+  #endif
 }
 
 void modbusHregSetStringChar8(uint16_t hregNum,char* str,uint8_t maxlen)
 {
+  #ifdef MODBUS_ENABLE
   unsigned char *p=(unsigned char*)str;
   uint16_t i=hregNum;
   uint8_t cnt=0;
@@ -1577,6 +1768,7 @@ void modbusHregSetStringChar8(uint16_t hregNum,char* str,uint8_t maxlen)
     if (cnt>=maxlen) break;
     i++;
   }
+  #endif
 }
 
 void loop() {
@@ -1588,15 +1780,61 @@ void loop() {
     else
         showRgb();
 */
+
+/*
+#ifdef HTTPCLIENT_ENABLE
+http.begin("http://82.209.207.138:88/alians_cms1.php?cmd=dumpTable&what=now()&table=ap_crm_machines&where=&orderBy=id&noheaders=1&limit=1");  //Specify destination for HTTP request
+int httpResponseCode = http.GET();   //Send the actual POST request
+//Serial.println(URL);
+if (httpResponseCode > 0) {
+  String response = http.getString();                       //Get the response to the request
+  Serial.print("HTTP:");
+  Serial.print(httpResponseCode);   //Print return code
+  Serial.print("-");
+  Serial.println(response);           //Print request answer
+}
+#endif
+*/
+#ifdef BLE_ENABLE
+if (connStatusChanged) {
+  if (isConnected) {
+    Serial.print("Connected to AP: ");
+    Serial.print(WiFi.SSID());
+    Serial.print(" with IP: ");
+    Serial.print(WiFi.localIP());
+    Serial.print(" RSSI: ");
+    Serial.println(WiFi.RSSI());
+
+    Serial.print("FREE stack: ");
+    Serial.println(uxTaskGetStackHighWaterMark(NULL));
+    Serial.print("FREE heap: ");
+    Serial.println(esp_get_free_heap_size());
+  } else {
+    if (hasCredentials) {
+      Serial.println("Lost WiFi connection");
+      // Received WiFi credentials
+      if (!scanWiFi()) { // Check for available AP's
+        Serial.println("Could not find any AP");
+      } else { // If AP was found, start connection
+        connectWiFi();
+      }
+    }
+  }
+  connStatusChanged = false;
+}
+#endif
+
         if ( millis() % 2000<50 )
           readDHT12();
-
+    delay(75);
+    #ifdef MODBUS_ENABLE
     mb.task();
     mb.Ists(100, digitalRead(MOLD_BUTTON_PIN));
     mb.Hreg(100, (uint16_t)moldCycleCounter);
     mb.Hreg(102,(float)((float)(prevCycleTime)/1000.0));
 //    modbusHregSetStringChar16(110,L"АЛЬЯНС",30);
-    modbusHregSetStringChar8(110,"АЛЬЯНС",30);
+    modbusHregSetStringChar8(110,(char*)"АЛЬЯНС",30);
+    #endif
 
     #ifdef SONAR_HC04_ENABLE
     long duration;
@@ -1658,162 +1896,14 @@ void loop() {
   }
   #endif
 
-    displayStatus = 1;
-    /*
-    #ifdef LORA_GATEWAY
-    {
-      // try to parse packet
-      int packetSize = LoRa.parsePacket();
-      if (packetSize)
-      {
-        // received a packet
-        Serial.print("Received packet '");
-        // read packet
-        int c=0;
-        while (LoRa.available()) {
-          loraPacket[c]=(char)LoRa.read();
-          c++;
-//          Serial.print((char)LoRa.read());
-      }
-      loraPacket[c]=0;
-      //Serial.print(loraPacket);
-      // print RSSI of packet
-      Serial.print("' with RSSI ");
-      Serial.println(LoRa.packetRssi());
+  displayStatus = 1;
 
-    char *p = &loraPacket[0];
-    char *p1;
-    char *str;
-    char *str1;
-    while ((str = strtok_r(p, ".\r\n", &p)) != NULL) // delimiter is the semicolon
-    {
-//     Serial.print("-");
-//     Serial.print(str);
-      int ii=0;
-      String counterId,timestamp,cycletime,counterVal,eventType,mouldopened,machineId,mouldId;
-      while ((str1 = strtok_r(str, ";", &str)) != NULL) // delimiter is the semicolon
-      {
-       if (ii==0) counterId=String(str1);
-       if (ii==1) timestamp=String("FROM_UNIXTIME(")+String(str1)+ String(")");
-       if (ii==2) cycletime=String(str1);
-       if (ii==3) counterVal=String(str1);
-       if (ii==4) eventType=String("'")+String(str1)+String("'");
-       if (ii==5) mouldopened=String(str1);
-       if (ii==6) machineId=String(str1);
-       if (ii==7) mouldId=String(str1);
-
-			 #ifdef WIFI_ENABLE
-			 if (ii==7 && WiFi.status() == WL_CONNECTED) { //Check WiFi connection status
-		#ifdef HTTPCLIENT_ENABLE
-		String URL = String("http://82.209.207.138:88/alians_cms1.php?cmd=execute_sql&sql=INSERT%20INTO%20ap_crm_counters_clamp(counterId,timestamp,cycletime,counterValue,eventType,mouldOpenedDuration,machineId,mouldId)%20values(")+
-                 String(counterId)+String(",")+
-                 String(timestamp) +String(",")+
-                 String(cycletime) + String(",") +
-                 String(counterVal) +String(",")+
-                 String(eventType)+String(",")+
-                 String(mouldopened)+String(",")+
-                 String(machineId)+String(",")+
-                 String(mouldId)+String("")+
-                 String(")");
-    http.begin(URL);  //Specify destination for HTTP request
-    int httpResponseCode = http.GET();   //Send the actual POST request
-    Serial.println(URL);
-    if (httpResponseCode > 0) {
-      String response = http.getString();                       //Get the response to the request
-      Serial.print("HTTP:");
-      Serial.print(httpResponseCode);   //Print return code
-      Serial.print(" - ");
-      Serial.println(response);           //Print request answer
-    } else {
-      Serial.print("Error on sending POST: ");
-      Serial.println(httpResponseCode);
-    }
-    http.end();  //Free resources
-    delay(50);
-		#endif
-    }
-		#endif
-
-       Serial.print(str1);
-       Serial.print(";");
-       ii++;
-      }
-    }
-
-		#ifdef U8G2_ENABLE
-      u8g2.setPowerSave(0);
-      u8g2.setFontDirection(0);
-      u8g2.clearBuffer();
-      //  if (frame&65535>32768) {u8g2.setDrawColor(0);} else {u8g2.setDrawColor(1);}
-      u8g2.setDrawColor(1);
-
-      u8g2.setCursor(1, 9);
-      u8g2.setFont(u8g2_font_haxrcorp4089_t_cyrillic);
-      String s1=String("");
-      #ifdef LORA32_ENABLE
-      s1=String("RSSI:")+String(LoRa.packetRssi());
-      #endif
-      String s2=String("P.SIZE:")+String(packetSize);
-      u8g2.print(s1);
-      u8g2.setCursor(1, 16);
-      u8g2.print(s2);
-      u8g2.sendBuffer();
-	  #endif
-
-    }
-//    delay(50);
-    return;
-    }
-    #endif //LORA_GATEWAY
-*/
-
-
-
-  /*
-    // try to parse packet
-    int packetSize = LoRa.parsePacket();
-    if (packetSize) {
-      // received a packet
-      Serial.print("Received packet '");
-      // read packet
-      while (LoRa.available()) {
-        Serial.print((char)LoRa.read());
-      }
-      // print RSSI of packet
-      Serial.print("' with RSSI ");
-      Serial.println(LoRa.packetRssi());
-    }
-  */
 	#ifdef U8G2_ENABLE
 	u8g2_uint_t w;
 	#endif
   frame++; frame = frame & ((65536 * 2) - 1);
-  /*
-    if (frame>65000) {
-      digitalWrite(1, HIGH);   // turn the LED on (HIGH is the voltage level)
-      digitalWrite(25, HIGH);   // turn the LED on (HIGH is the voltage level)
-      digitalWrite(2, HIGH);   // turn the LED on (HIGH is the voltage level)
-    }
-    else
-  */
-  /*
-  {
-    pinMode(25, OUTPUT); //Send success, LED will bright 1 second
-    pinMode(13, OUTPUT); //Send success, LED will bright 1 second
-    pinMode(2, OUTPUT); //Send success, LED will bright 1 second
-    digitalWrite(1, HIGH);   // turn the LED on (HIGH is the voltage level)
-    digitalWrite(25, LOW);   // turn the LED on (HIGH is the voltage level)
-    digitalWrite(13, LOW);   // turn the LED on (HIGH is the voltage level)
-  }
-  */
-  //delay(100);
   int buttonStatus = digitalRead(MOLD_BUTTON_PIN);
-  /*
-    if (buttonStatus == 1)
-    {
-      buttonStatus = digitalRead(23);
-    }
-  */
+  int removeButtonStatus = digitalRead(COUNTER_REMOVE_BUTTON_PIN);
 
   //buttonStatus=1 MOLD OPENED
   //buttonStatus=0 MOLD CLOSED
@@ -1888,6 +1978,8 @@ void loop() {
     }
   }
 */
+  if (removeButtonStatus==0)
+  {
   if (machineStatus==PRODUCTION_STOPPED)
   {
     BlinkRedLED();
@@ -1900,6 +1992,8 @@ void loop() {
   {
     BlinkYellowLED();
   }
+  }
+
   if (isDisplayOn == 0)
   {
 		//DISPLAY IS OFF
@@ -1924,7 +2018,8 @@ void loop() {
 */
   u8g2.setCursor(0, 12);
   u8g2.setFont(u8g2_font_unifont_t_cyrillic);
-  sprintf(scrollingString, "                           %s                        ","#2092 ДВ-1.0/131 №1,2 #01[ОС],#92[РУЧ.БЕЛ] в КОМПЛ. С #23[ЗЕЛ.] крышкой,IML:#923 \"Майонез сладкий 67\%\" в Гофроящик 600х400х520 по 300 ШТ.");
+//  sprintf(scrollingString, "                           %s                        ","#2092 ДВ-1.0/131 №1,2 #01[ОС],#92[РУЧ.БЕЛ] в КОМПЛ. С #23[ЗЕЛ.] крышкой,IML:#923 \"Майонез сладкий 67\%\" в Гофроящик 600х400х520 по 300 ШТ.");
+  sprintf(scrollingString, "                           %s                        ","#2092 PAIL-1.0/131 №2.1,2.2 #01[TRANSP.],#92[WHITE HANDLE] in a SET #23[GREEN] LID,IML:#923 \"SWEET SAUCE 67\%\" CARTOON 600х400х520mm by 300 PCS.");
 //  u8g2.print(&scrollingString[scrollingPos]);
   char str1[64];
   strncpy(str1,&scrollingString[scrollingPos],24);
@@ -2108,11 +2203,35 @@ void loop() {
 
   }
 
-  int removeButtonStatus = digitalRead(COUNTER_REMOVE_BUTTON_PIN);
-  if (removeButtonStatus==0)
+  if (removeButtonStatus==1)
   {
-    u8g2.drawDisc(128-7, 64-18, 4, U8G2_DRAW_ALL);
-    u8g2.drawCircle(128-7, 64-18, 6, (millis()%400)<200?U8G2_DRAW_ALL:0);
+    BlinkPinkLED();
+//    u8g2.clearBuffer();
+    int c1=(millis()%400)<200?1:0;
+//    int c2=(millis()%400)<200?0:1;
+    u8g2.setDrawColor(c1);
+    if (c1==0)
+    {
+      u8g2.setDrawColor(1);
+      u8g2.drawRBox(0,10,128,50,5);
+      u8g2.setDrawColor(0);
+    }
+    else
+    {
+      u8g2.setDrawColor(0);
+      u8g2.drawBox(0,10,128,50);
+      u8g2.setDrawColor(1);
+      u8g2.drawRFrame(0,10,128,50,5);
+    }
+    u8g2.setFont(u8g2_font_9x15_t_cyrillic );
+    u8g2.setCursor(36, 25);
+    u8g2.print("Counter");
+    u8g2.setCursor(36, 40);
+    u8g2.print("removed");
+    u8g2.setCursor(24, 55);
+    u8g2.print("from mold");
+//    u8g2.drawDisc(128-7, 64-18, 4, U8G2_DRAW_ALL);
+//    u8g2.drawCircle(128-7, 64-18, 6, (millis()%400)<200?U8G2_DRAW_ALL:0);
   }
   u8g2.sendBuffer();
 	#endif
@@ -2227,88 +2346,4 @@ unsigned long sendNTPpacket(IPAddress& address)
   udp.endPacket();
   return 0;
 }
-#endif
-#else
-#ifdef BLE_ENABLE
-//#include <WiFi.h>
-#include <esp_bt.h>            // ESP32 BLE
-#include <esp_bt_device.h>     // ESP32 BLE
-#include <esp_bt_main.h>       // ESP32 BLE
-#include <esp_gap_ble_api.h>   // ESP32 BLE
-#include <esp_gatts_api.h>     // ESP32 BLE
-#include <esp_gattc_api.h>     // ESP32 BLE
-#include <esp_gatt_common_api.h>// ESP32 BLE
-
-void setup(void) {
-  #ifdef BLE_ENABLE
-  uint8_t* mac;
-  Serial.begin(115200);
-  mc=esp_bt_dev_get_address();
-  Serial.printf("\r\nBoard MAC address: %x:%x:%x:%x:%x:%x\r\n", mc[0],mc[1],mc[2],mc[3],mc[4],mc[5] );
-
-  esp_log_level_set(GATTC_TAG, ESP_LOG_VERBOSE);
-  esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES) {
-      nvs_flash_erase();
-      ret = nvs_flash_init();
-  }
-
-  ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
-  esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-  ret = esp_bt_controller_init(&bt_cfg);
-  if (ret) {
-      ESP_LOGE(GATTC_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
-      return;
-  }
-  ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-  if (ret) {
-      ESP_LOGE(GATTC_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
-      return;
-  }
-  ret = esp_bluedroid_init();
-  if (ret) {
-      ESP_LOGE(GATTC_TAG, "%s init bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
-      return;
-  }
-
-  ret = esp_bluedroid_enable();
-  if (ret) {
-      ESP_LOGE(GATTC_TAG, "%s enable bluetooth failed: %s\n", __func__, esp_err_to_name(ret));
-      return;
-  }
-  //register the  callback function to the gap module
-  ret = esp_ble_gap_register_callback(esp_gap_cb);
-  if (ret){
-      ESP_LOGE(GATTC_TAG, "%s gap register failed, error code = %x\n", __func__, ret);
-      return;
-  }
-  //register the callback function to the gattc module
-  ret = esp_ble_gattc_register_callback(esp_gattc_cb);
-  if(ret){
-      ESP_LOGE(GATTC_TAG, "%s gattc register failed, error code = %x\n", __func__, ret);
-      return;
-  }
-
-  ret = esp_ble_gattc_app_register(PROFILE_A_APP_ID);
-  if (ret){
-      ESP_LOGE(GATTC_TAG, "%s gattc app register failed, error code = %x\n", __func__, ret);
-  }
-  /*
-  esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
-   if (local_mtu_ret) {
-       ESP_LOGE(GATTC_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
-   }
-   */
-   ESP_LOGE(GATTC_TAG, "BLE Init finished.");
-  #endif
-
-  //BLEDevice::init("");
-
-  delay(50);
-  delay(0);
-//	WiFi.mode(WIFI_STA);
-}
-void loop(void) {
-}
-#endif
 #endif
